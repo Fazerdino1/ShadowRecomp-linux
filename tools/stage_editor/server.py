@@ -15,11 +15,13 @@ from paths import read_paths,write_paths
 from models import read_dff,bind_uv_anims
 
 APP=Path(__file__).resolve().parent; ROOT=APP.parents[1]
+WINDOWS=os.name=='nt'
+EXE='shadow.exe' if WINDOWS else 'shadow'   # the game's executable (Linux build: build.sh puts it in play/)
 # Stage Forge for players (tools/stage_forge_app): the packaged editor sets STAGE_FORGE_DATA (its writable folder: projects,
 # caches) and STAGE_FORGE_GAME (the player's game folder: textures, settings, lighting, the exe the playtests copy).
 # Unset (development) = the project layout: ROOT/stage_projects, ROOT/work, ROOT/play, ROOT/lighting.
 DATA=Path(os.environ.get('STAGE_FORGE_DATA') or ROOT)
-PLAY=Path(os.environ.get('STAGE_FORGE_GAME') or (ROOT/'play'/'game' if (ROOT/'play'/'game'/'shadow.exe').exists() else ROOT/'play'))   # #138: the game moved to play\game (Forge sweep: textures library empty, playtest runtime never refreshed)
+PLAY=Path(os.environ.get('STAGE_FORGE_GAME') or (ROOT/'play'/'game' if (ROOT/'play'/'game'/EXE).exists() else ROOT/'play'))   # #138: the game moved to play\game (Forge sweep: textures library empty, playtest runtime never refreshed)
 LIGHT_ROOT=Path(os.environ.get('STAGE_FORGE_GAME') or ROOT)
 # #157: per-stage generated lighting (tools/lighting/make_profiles.py). A player's game folder has none (promotions copy
 # lighting\*.occ only), so the packaged Stage Forge brings its own copy (build_stage_forge.py) - the In-game look's stage look.
@@ -1113,7 +1115,9 @@ def reveal_asset(data):
     """POST /api/reveal {asset[, dry]}: open Explorer with the asset's file selected (dry: only report the path)"""
     path=ASSETS.get(str(data.get('asset','')))
     if not path or not Path(path).exists():raise ValueError('Unknown asset')
-    if not data.get('dry'):subprocess.Popen(['explorer','/select,',str(Path(path))])
+    if not data.get('dry'):
+        if WINDOWS:subprocess.Popen(['explorer','/select,',str(Path(path))])
+        else:subprocess.Popen(['xdg-open',str(Path(path).parent)])   # the desktop's file manager, on the asset's folder
     return dict(ok=True,path=str(path))
 def playtest_log(pid,lines=40):
     """GET /api/playtest-log?id=: the last lines of the newest test game's log (game.log of an editor playtest, else the
@@ -2151,16 +2155,16 @@ def build_enemy_paths(p,build,warnings):
 # shadow.exe.before-play-<time>); play\ is only read, never written (its saves and settings stay the user's). as_played:
 # the test game uses a copy of the user's play\shadow_settings.ini (lighting, look, volume ...) in a window, plus the
 # lighting files it needs, with sound and focus; its own memory card (the runtime's saves) as always.
-PLAY_SET=['shadow.exe','SDL3.dll','webgpu_dawn.dll','dxcompiler.dll','dxil.dll','libpng16.dll','zlib1.dll']
+PLAY_SET=['shadow.exe','SDL3.dll','webgpu_dawn.dll','dxcompiler.dll','dxil.dll','libpng16.dll','zlib1.dll'] if WINDOWS else [EXE]   # the Linux binary is self-contained
 def refresh_runtime():
     play,run=PLAY,DATA/'work/stage-editor-runtime/game'
-    if not (play/'shadow.exe').is_file() or not (run/'shadow.exe').is_file():return None
-    if (play/'shadow.exe').stat().st_mtime<=(run/'shadow.exe').stat().st_mtime+1:return None
-    shutil.copy2(run/'shadow.exe',run/f"shadow.exe.before-play-{time.strftime('%Y%m%d-%H%M%S')}")
+    if not (play/EXE).is_file() or not (run/EXE).is_file():return None
+    if (play/EXE).stat().st_mtime<=(run/EXE).stat().st_mtime+1:return None
+    shutil.copy2(run/EXE,run/f"{EXE}.before-play-{time.strftime('%Y%m%d-%H%M%S')}")
     for f in PLAY_SET+['lighting_profiles.ini','movement_presets.ini']:
         if (play/f).is_file():shutil.copy2(play/f,run/f)
     if (play/'lighting').is_dir():shutil.copytree(play/'lighting',run/'lighting',dirs_exist_ok=True)
-    return f"Editor runtime updated from play\\shadow.exe ({time.strftime('%Y-%m-%d %H:%M',time.localtime((play/'shadow.exe').stat().st_mtime))})"
+    return f"Editor runtime updated from play/{EXE} ({time.strftime('%Y-%m-%d %H:%M',time.localtime((play/EXE).stat().st_mtime))})"
 def set_object_cap():
     """#158: SET objects the player's game holds per stage (shadow_settings.ini, read only): set_objects 2,048 / 4,096 / 8,192,
     only with original_logic=0 ('Original game logic' on, the default, keeps the original 2,048)"""
@@ -2185,7 +2189,7 @@ def playtest_folder(d,build_name):
     g=d/'playtests'/'game'
     if g.is_dir():
         try:
-            if (g/'shadow.exe').exists():(g/'shadow.exe').unlink()
+            if (g/EXE).exists():(g/EXE).unlink()
         except OSError:
             g=d/'playtests'/build_name;g.mkdir(parents=True,exist_ok=True);return g
         for sub in ('mods','textures'):shutil.rmtree(g/sub,ignore_errors=True)
@@ -2209,15 +2213,15 @@ def playtest(pid,prepare_only=False,build_path=None,windowed=False,as_played=Fal
         except subprocess.TimeoutExpired:old.kill();old.wait(timeout=5)
     # Last validated lighting executable, explicitly lighting OFF. Parked candidate never used.
     source=DATA/'work/stage-editor-runtime/game'
-    if not (source/'shadow.exe').exists() and (PLAY/'shadow.exe').exists():source=PLAY   # a player's Stage Forge: their own game (only read and copied)
+    if not (source/EXE).exists() and (PLAY/EXE).exists():source=PLAY   # a player's Stage Forge: their own game (only read and copied)
     try:refreshed=refresh_runtime()
     except OSError as e:refreshed=f'Editor runtime not updated from play ({e})'
-    if not (source/'shadow.exe').exists():raise ValueError('Stage Workshop runtime build is not ready yet')
+    if not (source/EXE).exists():raise ValueError('Stage Workshop runtime build is not ready yet')
     game=playtest_folder(d,Path(info['path']).name)   # only this build's mods / textures in it (no stale overrides)
-    for file in ['shadow.exe','SDL3.dll','webgpu_dawn.dll','dxcompiler.dll','dxil.dll','libpng16.dll','zlib1.dll']:shutil.copy2(source/file,game/file)
+    for file in PLAY_SET:shutil.copy2(source/file,game/file)
     shutil.copytree(Path(info['path'])/'mods',game/'mods',dirs_exist_ok=True)
     if (Path(info['path'])/'textures').exists():shutil.copytree(Path(info['path'])/'textures',game/'textures',dirs_exist_ok=True)
-    shutil.copytree(source/'saves',game/'saves',dirs_exist_ok=True)
+    if (source/'saves').is_dir():shutil.copytree(source/'saves',game/'saves',dirs_exist_ok=True)   # none yet when the game was never started
     (game/'cache').mkdir(exist_ok=True)
     if as_played and not windowed:   # Test from here: the user's settings + the lighting files they need
         for f in ['lighting_profiles.ini','movement_presets.ini']:
@@ -2249,8 +2253,9 @@ def playtest(pid,prepare_only=False,build_path=None,windowed=False,as_played=Fal
 LIVE_VIEW={}
 def playtest_launch(game,stage,windowed):
     """(args, env additions, STARTUPINFO or None) for the private test game"""
-    args=[str(Path(game)/'shadow.exe'),'--disc',str(DISC),'--no-launcher','--stage',str(stage),'--widescreen']
+    args=[str(Path(game)/EXE),'--disc',str(DISC),'--no-launcher','--stage',str(stage),'--widescreen']
     if not windowed:return args,{},None
+    if not WINDOWS:return args,{'SDL_WINDOW_ACTIVATE_WHEN_SHOWN':'0'},None   # the SDL hint alone keeps the focus in the editor
     si=subprocess.STARTUPINFO();si.dwFlags|=subprocess.STARTF_USESHOWWINDOW;si.wShowWindow=4   # SW_SHOWNOACTIVATE
     return args,{'SDL_WINDOW_ACTIVATE_WHEN_SHOWN':'0'},si
 # POST /api/live-view/camera {id, position [x,y,z], lookAt [x,y,z] | yaw, pitch (degrees), fov (degrees, default 60)} and
@@ -2487,7 +2492,7 @@ if __name__=='__main__':
     def open_window():
         edge=Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Microsoft/Edge/Application/msedge.exe'
         page=url+('/ui2/index.html' if args.ui2 else '')
-        if edge.exists():subprocess.Popen([str(edge),'--app='+page,'--window-size=1600,1000','--user-data-dir='+str(DATA/'work/stage-editor-browser')])
+        if WINDOWS and edge.exists():subprocess.Popen([str(edge),'--app='+page,'--window-size=1600,1000','--user-data-dir='+str(DATA/'work/stage-editor-browser')])
         else:webbrowser.open(page)
     try:server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
     except OSError:

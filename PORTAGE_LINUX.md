@@ -107,6 +107,19 @@ Points apparus pendant l'exécution (hors plan initial) :
 - [x] `tools/game_import/gameimport.py` : cherche aussi `dolphin-tool` (nom du binaire sous Linux) pour les `.rvz`.
 - [x] `.gitignore` (liste blanche) : `build.sh` et `PORTAGE_LINUX.md` autorisés.
 
+Deuxième passe (outils autour du jeu) :
+
+- [x] Éditeur de niveaux `tools/stage_editor/server.py` : nom du binaire (`shadow` au lieu de `shadow.exe`), plus de
+  liste de DLL à copier sous Linux, lancement du jeu de test sans `STARTUPINFO`, « révéler le fichier » par `xdg-open`,
+  ouverture dans le navigateur par défaut (au lieu d'Edge), dossier `saves` absent toléré.
+- [x] `tools/audio/adx.py` : sous Linux, décodage des musiques par le `ffmpeg` du système (Windows : Media Foundation
+  puis ffmpeg portable, inchangé).
+- [x] `tools/linux/install-desktop-entry.sh` : entrée dans le menu d'applications du bureau.
+- Rien à faire : `tools/gen.py`, `lift.py`, `dol.py`, `one_archive.py`, `texture_dump.py`, `tools/menu`, `tools/tilesets`
+  (scripts Blender) sont du Python portable ; les noms de fichiers du disque qu'ils utilisent ont déjà la bonne casse
+  (vérifié contre le manifeste du disque). Les launchers externes (`ShadowLauncher`, `launcher/*.pyw`) ne sont pas
+  dans le dépôt : rien à porter.
+
 ## 4. Modifications du code du jeu recompilé
 
 Aucune. `generated/`, `tools/gen.py` et `tools/lift.py` ne sont pas touchés ; seuls `runtime/` (couche plateforme),
@@ -142,6 +155,22 @@ Recompiler plus tard :
 
 ```bash
 ./build.sh
+```
+
+Menu d'applications du bureau (facultatif) :
+
+```bash
+tools/linux/install-desktop-entry.sh
+```
+
+Éditeur de niveaux (en cours de développement en amont) :
+
+```bash
+sudo dnf install python3-numpy python3-pillow ffmpeg
+```
+
+```bash
+python3 tools/stage_editor/server.py --ui2
 ```
 
 Utile :
@@ -189,9 +218,14 @@ Fait mais **non vérifié** (impossible ici) :
 - Compilation avec le clang plus récent de Nobara (essayé ici avec clang 18 seulement).
 - Version Windows : analyse syntaxique seulement, pas de compilation MSVC/clang-cl réelle ni d'exécution.
 
+Éditeur de niveaux et outils (deuxième passe) : le serveur démarre sous Linux et sert l'interface (vérifié ici,
+sans disque) ; ouverture d'un niveau, construction, test en jeu et conversion de musique **non vérifiés** (il faut le
+disque).
+
 Reste à faire :
 
 - Compiler avec le vrai disque et jouer sur la machine cible ; corriger ce que cet essai révélera.
 - Profileur (`PROFILE=`) : Windows seulement ; sous Linux, utiliser `perf`.
-- L'éditeur de niveaux (`tools/stage_editor`) et les launchers externes n'ont pas été examinés pour Linux.
+- Bug de musique signalé en jeu (elle se dérègle après quelques minutes) : cause non trouvée ; la sortie audio de la
+  machine est saine d'après les journaux, le défaut est dans le son produit par le jeu.
 - Données à côté du binaire (comme sous Windows) ; pas de rangement XDG (`~/.local/share`).

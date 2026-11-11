@@ -113,6 +113,9 @@ def wav_to_adx(path, loop=True, loop_start_s=0.0):
 
 HERE = Path(__file__).resolve().parent
 FFMPEG = HERE / 'ffmpeg' / 'ffmpeg.exe'   # optional portable LGPL build (see tools/audio/ffmpeg/README.md)
+if os.name != 'nt':   # Linux: the distribution's ffmpeg (dnf install ffmpeg / apt install ffmpeg)
+    import shutil
+    FFMPEG = Path(shutil.which('ffmpeg') or '/usr/bin/ffmpeg')
 
 
 def _run(cmd):
@@ -132,7 +135,7 @@ def song_to_wav(src, dst):
         code, msg = _run([str(FFMPEG), '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(src), '-vn', '-acodec', 'pcm_s16le', '-ar', str(RATE), str(dst)])
         if code == 0 and dst.exists(): return 'ffmpeg'
         why.append(msg.splitlines()[-1] if msg else f'ffmpeg exit {code}')
-    else: why.append('no portable ffmpeg in tools/audio/ffmpeg')
+    else: why.append('no portable ffmpeg in tools/audio/ffmpeg' if os.name == 'nt' else 'ffmpeg is not installed')
     raise ValueError(f'{src.name}: could not decode this song ({"; ".join(why)})')
 
 

@@ -49,6 +49,7 @@
 !/tools/menu/
 !/tools/audio/
 !/tools/stage_editor/
+!/tools/linux/
 !/tools/tilesets/
 # neutral icon / art the build uses when the game-derived ones are not there (fresh clone)
 !/tools/release/

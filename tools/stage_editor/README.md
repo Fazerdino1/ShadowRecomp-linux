@@ -13,6 +13,8 @@ The stage editor for ShadowRecomp. It runs in your web browser. It isn't finishe
 python tools/stage_editor/server.py --ui2
 ```
 
+On Linux: `python3 tools/stage_editor/server.py --ui2` (packages: `python3-numpy python3-pillow`, and `ffmpeg` to use your own MP3 / OGG / FLAC music). It opens in your default browser; playtests copy and start `play/shadow`.
+
 It opens the editor at http://127.0.0.1:49012. Your projects are saved in `stage_projects\`. The original disc and your installed game are never changed: builds and playtests use their own copies.
 
 **Credits and licences**
