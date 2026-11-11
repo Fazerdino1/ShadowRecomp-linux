@@ -143,6 +143,10 @@ void f_802C4334(Cpu&);   // Select Mode: launch the selected stage
 static uint32_t g_adv_state = 0;
 // #117: the menu folder (fn_802B6470 state +4 = current phase) is 0 while any stage runs, whatever the player does
 // (in_stage() needs the player's move step, which a ledge hang, poles and rails skip); before the folder exists: menus
+int game::current_stage() {
+  const int32_t s = (int32_t)ld32(0x8057D748);
+  return s > 0 ? s : (int)ld32(0x80584720);
+}
 bool game::menus_active() { return !g_adv_state || ld32(g_adv_state + 4) != 0; }
 static int g_boot_step = 0;   // 0 waiting for the title, 1 Select Mode requested, 2 launched
 bool game::stage_boot_loading() { return g_boot_stage>1 && g_boot_step<3; }

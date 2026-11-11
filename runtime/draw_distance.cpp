@@ -17,7 +17,7 @@ std::unordered_map<uint32_t, State> cameras;
 }
 void refresh_camera(uint32_t cam, Cpu& c) {
   static uint32_t last_stage = 0;
-  const uint32_t stage = ld32(0x80584720);
+  const uint32_t stage = (uint32_t)game::current_stage();
   if (stage != last_stage) { cameras.clear(); last_stage = stage; }
   if (cam < 0x80000000u || cam > 0x817FFD00u || (ld32(cam) >> 24) != 4 || ld32(cam + 0x14) != 1) return;
   const float value = ldf32(cam + 0x84);

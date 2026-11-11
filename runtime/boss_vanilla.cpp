@@ -10,6 +10,7 @@
 // turn into) ends as vanilla ends it (WAIT).
 // BB_ANCHOR_LOG=1 logs the table and the stuck legs. Black Bull 0412 has no CHASE (it hovers at its placement and
 // returns there after a charge): nothing to move.
+#include "game.h"
 #include "sys.h"
 #include <cmath>
 #include <cstdlib>
@@ -36,7 +37,7 @@ void anchor(uint32_t vp) {
     if (log_on())
       for (int i = 0; i < 8; ++i) logf("[bb0210] table %d (%.1f, %.1f, %.1f)\n", i, g_orig[i][0], g_orig[i][1], g_orig[i][2]);
   }
-  const bool own = ld32(0x80584720) == 210;
+  const bool own = (uint32_t)game::current_stage() == 210;
   float cx = 0, cz = 0, scale = 1, ar = 0;
   if (!own) {
     float rmax = 0;
@@ -56,7 +57,7 @@ void anchor(uint32_t vp) {
 
 // after the CHASE update: a leg that has not got 5 units closer in 1.5 s ends (request WAIT + the flag CHASE sets)
 void chase_guard(uint32_t vp) {
-  if (ld32(0x80584720) == 210) return;
+  if ((uint32_t)game::current_stage() == 210) return;
   static uint32_t s_vp = 0; static float s_best = 0; static uint64_t s_t = 0;
   const float d = (float)ldf32(vp + 0x114);
   const uint64_t now = sys_time_ns();

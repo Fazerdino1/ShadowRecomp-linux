@@ -1,6 +1,7 @@
 // Boss runtime (overnight D, docs/bosses/BOSS-SUPPORT.md + BOSS-PHASE1-RESULTS.md). Phase 1 probe: BOSS_LOG=1 logs Black
 // Bull 0210's mode units (START update fn_80236248, WAIT update fn_80234D78): call counts, the mode value (boss +0x14),
 // and the WAIT inputs (+0x174 vs the range +0xE8) - why a boss placed in another stage stays idle.
+#include "game.h"
 #include "sys.h"
 #include <cmath>
 #include <cstdlib>
@@ -57,7 +58,7 @@ void hle_BB0210Start(Cpu& c) {
   if (boss >= 0x80000000u && boss < RT_RAM_END) bb0210::anchor(boss);
   f_80236248(c);
   static std::unordered_map<uint32_t, int> frames;
-  if (boss < 0x80000000u || boss >= RT_RAM_END || ld32(0x80584720) == 210) return;   // its own stage: untouched
+  if (boss < 0x80000000u || boss >= RT_RAM_END || (uint32_t)game::current_stage() == 210) return;   // its own stage: untouched
   if ((int)ld32(boss + 0x14) != 0) { frames.erase(boss); return; }
   static const bool force = getenv("BOSS_FORCE_START") != nullptr;   // probe only: off by default
   if (force && ++frames[boss] == 180) {
@@ -86,7 +87,7 @@ void hle_BB0210_CHASE(Cpu& c) {
   f_8023514C(c);
   if (boss >= 0x80000000u && boss < RT_RAM_END) bb0210::chase_guard(boss);
   static const bool leash = getenv("BOSS_LEASH") != nullptr && getenv("BOSS_NO_LEASH") == nullptr;
-  if (boss < 0x80000000u || boss >= RT_RAM_END || ld32(0x80584720) == 210 || !leash) return;
+  if (boss < 0x80000000u || boss >= RT_RAM_END || (uint32_t)game::current_stage() == 210 || !leash) return;
   const float bx = (float)ldf32(boss + 0xFC), by = (float)ldf32(boss + 0x100), bz = (float)ldf32(boss + 0x104);
   const float px = (float)ldf32(boss + 0x138), py = (float)ldf32(boss + 0x13C), pz = (float)ldf32(boss + 0x140);
   const float dx = px - bx, dz = pz - bz, d = std::sqrt(dx * dx + dz * dz);
@@ -125,7 +126,7 @@ void on_set_loaded() {
     if (ld8(rec + 0x20) == 0 && ld8(rec + 0x21) >= 0xB4 && ld8(rec + 0x21) <= 0xBE) {
       const uint8_t was = ld8(0x8057D6A0 + 0xB1);
       st8(0x8057D6A0 + 0xB1, 1);
-      logf("[boss] boss record 00/%02X in stage %u -> HP-bar flag 0x8057D751 %u -> 1\n", ld8(rec + 0x21), ld32(0x80584720), was);
+      logf("[boss] boss record 00/%02X in stage %u -> HP-bar flag 0x8057D751 %u -> 1\n", ld8(rec + 0x21), (uint32_t)game::current_stage(), was);
       return;
     }
   }

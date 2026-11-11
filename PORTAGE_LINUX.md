@@ -120,6 +120,16 @@ Deuxième passe (outils autour du jeu) :
   (vérifié contre le manifeste du disque). Les launchers externes (`ShadowLauncher`, `launcher/*.pyw`) ne sont pas
   dans le dépôt : rien à porter.
 
+Corrections de jeu (défauts du projet d'origine, indépendants de Linux) :
+
+- [x] **Boss Black Bull cassé en mode Histoire.** Plusieurs modules lisaient le numéro de niveau à `0x80584720`, qui
+  n'est que la *demande* du mode Sélection et vaut 0 en mode Histoire (le projet l'avait déjà corrigé pour l'éclairage,
+  `lighting_core.h`). Le code de Black Bull se croyait donc « hors de son niveau » et déplaçait ses points de vol et
+  coupait ses poursuites. Nouveau `game::current_stage()` (niveau réellement joué, `0x8057D748`), utilisé par
+  `boss.cpp`, `boss_vanilla.cpp`, `cheats.cpp`, `draw_distance.cpp`, `custom_stage_rules.cpp`, `custom_stats.cpp`,
+  `stage_workshop.cpp`. Diagnostic : journal du joueur (`boss record 00/B4 in stage 0` dans le niveau 210).
+  Compilé ici ; **effet en jeu non vérifié** (pas de disque).
+
 ## 4. Modifications du code du jeu recompilé
 
 Aucune. `generated/`, `tools/gen.py` et `tools/lift.py` ne sont pas touchés ; seuls `runtime/` (couche plateforme),

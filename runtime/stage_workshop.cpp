@@ -654,7 +654,7 @@ void hle_SetLoadFile(Cpu& c) {
   if(layer>=0&&after>=before)g_layers.push_back({layer,before,after});
   logf("[workshop] SET %s: records %u..%u (layer %d)\n",path,before,after,layer); object_distance::apply();   // new records get the object draw distance before the first activation scan
   boss::on_set_loaded();   // a placed boss gets its HP bar (boss.cpp)
-  if(FILE* f=capture()){fprintf(f,"{\"ev\":\"set\",\"stage\":%d,\"file\":\"%s\",\"layer\":%d,\"first\":%u,\"end\":%u}\n",int(ld32(0x80584720)),path,layer,before,after);fflush(f);}
+  if(FILE* f=capture()){fprintf(f,"{\"ev\":\"set\",\"stage\":%d,\"file\":\"%s\",\"layer\":%d,\"first\":%u,\"end\":%u}\n",game::current_stage(),path,layer,before,after);fflush(f);}
 }
 namespace stage_workshop { void watch_add(uint32_t entry,uint32_t inst,uint32_t cls); void track_add(uint32_t entry); }
 void hle_SetCreate(Cpu& c,uint32_t target) {   // callhooks.txt 800CA564: class create(entry) of the activation scan
@@ -1143,7 +1143,7 @@ void frame_begin(Cpu& c) {
   }
   if(!g_watch.empty())watch_step();
   track_step();
-  ++g_frame;const int stage=int(ld32(0x80584720));if(stage!=g_stage)load(stage);
+  ++g_frame;const int stage=game::current_stage();if(stage!=g_stage)load(stage);
   if(!g_header.version&&!vm_on())return;
   const float elapsed=float(ldf32(0x8057D734));
   if(std::isfinite(elapsed)&&elapsed>=0) {

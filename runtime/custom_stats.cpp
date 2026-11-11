@@ -103,7 +103,7 @@ uint32_t stage_row(int stage) {
 std::string route_of(uint32_t obj) {
   const auto it = g_missions.find(obj);
   if (it == g_missions.end()) return {};
-  const uint32_t row = stage_row(int(ld32(0x80584720)));
+  const uint32_t row = stage_row(game::current_stage());
   if (!row) return {};
   static const char* kRoute[3] = {"dark", "neutral", "hero"};
   for (int s = 0; s < 3; ++s)
@@ -179,7 +179,7 @@ uint32_t row_of(int stage) { return stage > 0 ? stage_row(stage) : 0; }
 void tick() {
   read_sidecar();
   if (!g_side.ok) return;
-  const int stage = int(ld32(0x80584720));
+  const int stage = game::current_stage();
   const bool playing = game::in_stage() && stage == g_side.slot;
   const uint64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
   if (playing && (!g_run.active || g_run.ended) && !g_run.active) {

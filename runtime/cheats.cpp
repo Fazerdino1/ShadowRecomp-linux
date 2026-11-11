@@ -86,7 +86,7 @@ void apply_frame() {
   if (g_on[MIN_20_RINGS] && (int32_t)ld32(0x8057670C) < 20) w32(0x8057670C, 20);
   if (g_on[RINGS_999]) w32(0x8057670C, 999);
   if (g_on[INFINITE_RINGS]) {   // never down: a loss is undone (per stage; a new stage starts from its own count)
-    const uint32_t stage = ld32(0x80584720);
+    const uint32_t stage = (uint32_t)game::current_stage();
     const int32_t r = (int32_t)ld32(0x8057670C);
     if (stage != g_rings_stage || !game::in_stage()) { g_rings_stage = stage; g_rings_last = r; }   // loading / a new stage: its own count
     else if (r < g_rings_last) {
@@ -137,7 +137,7 @@ void hle_SecretContainerParams(Cpu& c) {
   static int next = 0;
   static std::vector<std::pair<uint32_t, uint32_t>> given;   // box -> its weapon (the parameters are read more than once)
   static uint32_t stage = 0;
-  if (ld32(0x80584720) != stage) { stage = ld32(0x80584720); given.clear(); next = 0; }
+  if ((uint32_t)game::current_stage() != stage) { stage = (uint32_t)game::current_stage(); given.clear(); next = 0; }
   uint32_t w = 0;
   for (const auto& g : given)
     if (g.first == box) w = g.second;

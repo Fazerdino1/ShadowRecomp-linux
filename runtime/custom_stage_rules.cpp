@@ -8,6 +8,7 @@
 //        (fn_8016B270 through custom_stats' hle_MissionFail, so the run is recorded as a fail), once per attempt.
 // Hooks: overrides.txt fn_802EEAF0 -> hle_CsMissionSpeak, fn_8009EC2C (Player::Controller update) -> hle_CsPlayerUpdate.
 // Log lines start with "[stage-rules]" (quiet-run proofs: tests/RESULTS.md).
+#include "game.h"
 #include "sys.h"
 #include <cstdlib>
 #include <cstring>
@@ -77,7 +78,7 @@ void read() {
   logf("[stage-rules] custom stage slot %d: voice %s, startRings %d, startLives %d, timeLimit %d\n", g.slot, g.voice.c_str(), g.startRings,
        g.startLives, g.timeLimit);
 }
-bool in_slot() { read(); return g.active && (int)ld32(0x80584720) == g.slot; }
+bool in_slot() { read(); return g.active && game::current_stage() == g.slot; }
 
 uint32_t g_last_ctrl = 0;      // the player controller the rings were last set for
 bool g_lives_done = false;     // lives set for this entry into the stage
@@ -106,7 +107,7 @@ void hle_CsTalk(Cpu& c) {
   const uint32_t up1 = f1 >= 0x80000000u && f1 < RT_RAM_END ? ld32(f1 + 4) : 0, up2 = f2 >= 0x80000000u && f2 < RT_RAM_END ? ld32(f2 + 4) : 0;
   static const bool log = getenv("CS_TALK_LOG") != nullptr;
   if (log)
-    logf("[stage-rules] talk request lr %08X up %08X %08X line %X stage %u\n", c.lr, up1, up2, c.r[4], ld32(0x80584720));
+    logf("[stage-rules] talk request lr %08X up %08X %08X line %X stage %u\n", c.lr, up1, up2, c.r[4], (uint32_t)game::current_stage());
   if (up2 >= 0x800A78FCu && up2 < 0x800A7CF8u && in_slot() && g.voice != "slot") {
     static int n = 0;
     if (n++ < 20) logf("[stage-rules] slot voice line %X skipped (player hint, voice %s)\n", c.r[4], g.voice.c_str());
