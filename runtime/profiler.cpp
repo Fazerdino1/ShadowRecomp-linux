@@ -2,6 +2,8 @@
 // A helper thread suspends the main (game) thread ~1000x per second, records its instruction pointer, and after the
 // window resolves the samples to function names with DbgHelp (needs the PDB; the build links with /DEBUG) and logs
 // the top functions. Used to find where frame time goes (recompiled guest code vs runtime vs Aurora).
+// Windows only (SuspendThread + DbgHelp). On Linux use perf: perf record -g ./shadow, then perf report.
+#ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
 #include <dbghelp.h>
@@ -119,3 +121,10 @@ void profiler_start_if_requested() {
                   DUPLICATE_SAME_ACCESS);
   std::thread(run, start, dur).detach();
 }
+#else
+#include "sys.h"
+#include <cstdlib>
+void profiler_start_if_requested() {
+  if (getenv("PROFILE")) logf("[profile] PROFILE is only available in the Windows build; on Linux use: perf record -g ./shadow\n");
+}
+#endif

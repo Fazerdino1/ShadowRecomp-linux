@@ -132,7 +132,7 @@ static uint16_t file_buttons() {
   if (!strcmp(name, "FRAMES")) {   // "FRAMES n,x,y,w,h": that region of the next n frames -> work\frame_NNN.ppm (exact frames)
     int n = 0, x = 0, y = 0, w = 0, h = 0;
     if (sscanf(arg, "%d,%d,%d,%d,%d", &n, &x, &y, &w, &h) == 5) {
-      aurora_capture_frames(n, x, y, w, h, "work\\frame_");
+      aurora_capture_frames(n, x, y, w, h, "work/frame_");
       logf("[input-file] capturing %d frames (%d,%d %dx%d)\n", n, x, y, w, h);
     }
     return 0;

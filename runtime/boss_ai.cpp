@@ -8,6 +8,7 @@
 //    has HP; the last one's goes through.
 // Bosses are known from their gauge unit (seen within the last 3 s); for tests every
 // boss is killed in turn (BOSS_KILL_SEQ below). BOSS_AI_LOG=1 logs.
+#include "platform.h"
 #include "sys.h"
 #include "settings_ui.h"
 #include "game.h"
@@ -879,7 +880,6 @@ void hle_BDReady(Cpu& c) { const uint32_t u = c.r[3]; f_80285750(c); bd_after_re
 // = another radius). Move runs with the position shifted by the centre (it reads no player position); GetStatus's two
 // angles are taken again round the centre; the zero vector holds the centre during CHASE / ESCAPE only.
 // BF_NO_RECENTRE=1: off.
-extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void*, char*, unsigned long);
 void f_80252848(Cpu&);   // HeavyDog0510ModeCtrlUnit_CHASE update
 void f_80252B7C(Cpu&);   // HeavyDog0510ModeCtrlUnit_ESCAPE update
 void f_8026BF54(Cpu&);   // HeavyDog0510CtrlUnit_Move update
@@ -898,10 +898,7 @@ BfArena boss_arena_of(unsigned want) {   // the editor arena of a boss type (B7 
   std::string txt;
   if (const char* e = getenv("BOSS_ARENA")) txt = e;
   else {
-    char exe[512] = {};
-    GetModuleFileNameA(nullptr, exe, sizeof exe);
-    std::string path = exe;
-    path = path.substr(0, path.find_last_of("\/")) + "\mods\boss_arena.txt";
+    const std::string path = plat::exe_dir() + "/mods/boss_arena.txt";
     if (FILE* f = fopen(path.c_str(), "rb")) { char b[4096]; size_t n = fread(b, 1, sizeof b - 1, f); fclose(f); txt.assign(b, n); }
   }
   for (char& ch : txt) if (ch == ';') ch = '\n';

@@ -9,7 +9,7 @@ namespace set_capacity { uint32_t cap_of(uint32_t manager); }   // set_capacity.
 #include "input.h"
 #include "lighting_environment.h"
 #define NOMINMAX
-#include <windows.h>
+#include "platform.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -71,8 +71,7 @@ void load_v3(int stage) {
   g_header={};g_volumes.clear();g_actions.clear();g_state.clear();g_pending.clear();g_variables.clear();
   g_owner=0;g_time=0;g_spawn_pending=false;g_buttons=0;g_stage=stage;
   g_last_stage_time=-1;
-  char exe[MAX_PATH];GetModuleFileNameA(nullptr,exe,MAX_PATH);std::string path=exe;
-  path=path.substr(0,path.find_last_of("\\/"))+"\\mods\\stages\\stg";
+  std::string path = plat::exe_dir()+"/mods/stages/stg";
   char name[32];snprintf(name,sizeof name,"%04d.bin",stage);path+=name;
   std::ifstream f(path,std::ios::binary|std::ios::ate);if(!f)return;
   const auto size=f.tellg();if(size<sizeof(Header)||size>2*1024*1024)return;
@@ -264,9 +263,9 @@ const char* vm_node(uint32_t pc){return pc<g_vm.code.size()&&g_vm.code[pc].node<
 void vm_load(int stage) {
   g_ops.clear();g_glides.clear();g_pos_off.clear();g_roots.clear();g_find.clear();
   g_vm=Vm{};for(auto& h:g_hud_vals)h=HudVal{};
-  char exe[MAX_PATH];GetModuleFileNameA(nullptr,exe,MAX_PATH);std::string path=exe;
-  g_vm_dir=path.substr(0,path.find_last_of("\\/"))+"\\mods";
-  char name[40];snprintf(name,sizeof name,"\\mods\\stages\\stg%04d.v4.bin",stage);
+  std::string path=plat::exe_path();
+  g_vm_dir=plat::exe_dir()+"/mods";
+  char name[40];snprintf(name,sizeof name,"/mods/stages/stg%04d.v4.bin",stage);
   path=path.substr(0,path.find_last_of("\\/"))+name;
   std::ifstream f(path,std::ios::binary|std::ios::ate);if(!f)return;
   const size_t size=size_t(f.tellg());if(size<64||size>4*1024*1024){logf("[workshop] vm: %s bad size\n",path.c_str());return;}
@@ -421,8 +420,8 @@ std::pair<uint32_t,bool> vm_run(VmCo& c,uint32_t budget) {
         logf("[workshop] vm HUD value line %d: %s = variable %d\n",k+1,g_hud_vals[k].label.c_str(),int(var));break;}
       case 24:{const int k=std::clamp(int(pop())-1,0,2);g_hud_vals[k].on=false;logf("[workshop] vm HUD value line %d hidden\n",k+1);break;}
       case 25:{const float s=pop();const std::string a=uint32_t(s)<g_vm.strings.size()?g_vm.strings[uint32_t(s)]:std::string();   // play sound: mods\sounds\<asset>[.wav]
-        const std::string dir=g_vm_dir+"\\sounds\\";std::string f=dir+a;
-        if(GetFileAttributesA(f.c_str())==INVALID_FILE_ATTRIBUTES)f+=".wav";
+        const std::string dir=g_vm_dir+"/sounds/";std::string f=dir+a;
+        if(!plat::exists(f))f+=".wav";
         if(a.empty()||!audio_play_file(f.c_str()))logf("[workshop] vm play sound \"%s\": no such sound in mods\\sounds (game cues are not supported yet)\n",a.c_str());
         break;}
       default:{   // 13 message: no on-screen text yet - logged only
@@ -1201,7 +1200,7 @@ struct LiveView {
   bool on=false,have=false,carry=true;uint32_t seq=0;float fov=0;
   V tpos{},tat{},pos{},at{};          // target / smoothed eye and look direction
   bool saved=false;V player{};uint32_t owner=0;
-  FILETIME mtime{};uint64_t polled=0,last=0;std::string path;bool log=false;uint32_t logged=0;
+  uint64_t mtime=0;uint64_t polled=0,last=0;std::string path;bool log=false;uint32_t logged=0;
 } g_lv;
 const char* jfind(const std::string& s,const char* key){const std::string k=std::string("\"")+key+"\"";size_t p=s.find(k);if(p==std::string::npos)return nullptr;p=s.find(':',p+k.size());return p==std::string::npos?nullptr:s.c_str()+p+1;}
 bool jnum(const std::string& s,const char* key,float& out){const char* p=jfind(s,key);if(!p)return false;char* e;const double v=strtod(p,&e);if(e==p||!std::isfinite(v))return false;out=float(v);return true;}
@@ -1213,14 +1212,14 @@ float vlen(V a){return std::sqrt(a.x*a.x+a.y*a.y+a.z*a.z);}
 V vnorm(V a){const float l=vlen(a);return l>1e-6f?V{a.x/l,a.y/l,a.z/l}:V{0,0,1};}
 void live_poll() {
   const uint64_t now=sys_time_ns();if(now-g_lv.polled<50000000ull)return;g_lv.polled=now;
-  if(g_lv.path.empty()){char exe[MAX_PATH];GetModuleFileNameA(nullptr,exe,MAX_PATH);g_lv.path=exe;g_lv.path=g_lv.path.substr(0,g_lv.path.find_last_of("\/")+1)+"live-view-camera.json";
+  if(g_lv.path.empty()){g_lv.path=plat::exe_dir()+"/live-view-camera.json";
     g_lv.log=getenv("LIVE_VIEW_LOG")!=nullptr;
     // a file left over from an earlier session is not a request: only files written after this process started count
-    FILETIME ft;GetSystemTimeAsFileTime(&ft);g_lv.mtime=ft;}
-  WIN32_FILE_ATTRIBUTE_DATA fa;if(!GetFileAttributesExA(g_lv.path.c_str(),GetFileExInfoStandard,&fa))return;
-  if(CompareFileTime(&fa.ftLastWriteTime,&g_lv.mtime)<=0)return;
+    g_lv.mtime=plat::now_stamp();}
+  uint64_t fa_mtime=0;if(!plat::file_stamp(g_lv.path,&fa_mtime))return;
+  if(fa_mtime<=g_lv.mtime)return;
   std::ifstream f(g_lv.path,std::ios::binary);if(!f)return;   // being replaced: next poll
-  const std::string s((std::istreambuf_iterator<char>(f)),std::istreambuf_iterator<char>());g_lv.mtime=fa.ftLastWriteTime;
+  const std::string s((std::istreambuf_iterator<char>(f)),std::istreambuf_iterator<char>());g_lv.mtime=fa_mtime;
   float seq=0;jnum(s,"seq",seq);   // every newer write counts (the server's seq restarts with the server)
   const char* m=jfind(s,"mode");const bool release=m&&strstr(m,"release")&&(!strchr(m,',')||strstr(m,"release")<strchr(m,','));
   g_lv.seq=uint32_t(seq);g_lv.have=true;

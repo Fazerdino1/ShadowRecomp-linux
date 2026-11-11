@@ -29,7 +29,7 @@
 #include <vector>
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <windows.h>
+#include "platform.h"
 
 namespace ms = menu_schema;
 
@@ -216,15 +216,7 @@ void SDLCALL on_folder_picked(void*, const char* const* list, int) {
 }
 void restart_game() {   // the same exe with the same command line, then this one ends (settings saved first)
   settings::save();
-  wchar_t exe[MAX_PATH];
-  GetModuleFileNameW(nullptr, exe, MAX_PATH);
-  std::wstring cmd = GetCommandLineW();
-  STARTUPINFOW si{};
-  si.cb = sizeof si;
-  PROCESS_INFORMATION pi{};
-  if (CreateProcessW(exe, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
+  if (plat::restart_self()) {
     logf("[menu] restart: new game started, this one ends\n");
     sys_exit_guarded(0);   // #153: no teardown (it can block on the GPU driver)
   }

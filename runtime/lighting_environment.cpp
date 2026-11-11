@@ -4,7 +4,7 @@
 #include "sys.h"
 #include "stage_workshop.h"
 #define NOMINMAX
-#include <windows.h>
+#include "platform.h"
 #include <png.h>
 #include <filesystem>
 #include <algorithm>
@@ -54,14 +54,12 @@ std::string trim(std::string s) {
   return s.substr(a, s.find_last_not_of(" \t\r\n") - a + 1);
 }
 std::string exe_dir() {
-  char exe[MAX_PATH]; GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  const std::string p = exe;
-  return p.substr(0, p.find_last_of("\\/"));
+  return plat::exe_dir();
 }
-std::string profile_path() { return exe_dir() + "\\lighting_profiles.ini"; }
+std::string profile_path() { return exe_dir() + "/lighting_profiles.ini"; }
 // L1 / L4: a Stage Workshop build's rules for one stage (same format), used after lighting_profiles.ini
 std::string stage_rules_path(int stage) {
-  char b[64]; snprintf(b, sizeof b, "\\mods\\stages\\stg%04d.light.ini", stage);
+  char b[64]; snprintf(b, sizeof b, "/mods/stages/stg%04d.light.ini", stage);
   return exe_dir() + b;
 }
 bool numbers(std::string s, float* out, int n) {
@@ -81,7 +79,7 @@ uint64_t sky_stamp(const Rule& r) {
 }
 bool sample_sky(Rule& r) {
   const auto path=sky_path(r);
-  FILE* file=_wfopen(path.c_str(),L"rb");
+  FILE* file=plat::fopen_path(path,"rb");
   if(!file) return false;
   png_image im{}; im.version=PNG_IMAGE_VERSION;
   bool ok=png_image_begin_read_from_stdio(&im,file)!=0;
@@ -190,10 +188,10 @@ bool parse_rules(const std::string& path, std::vector<Rule>& rules) {
   return ok;
 }
 uint64_t file_stamp(const std::string& path, bool& exists, uint64_t& size) {
-  WIN32_FILE_ATTRIBUTE_DATA stat{};
-  exists = GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &stat);
-  size = exists ? (uint64_t(stat.nFileSizeHigh) << 32) | stat.nFileSizeLow : 0;
-  return exists ? (uint64_t(stat.ftLastWriteTime.dwHighDateTime) << 32) | stat.ftLastWriteTime.dwLowDateTime : 0;
+  uint64_t mtime = 0;
+  size = 0;
+  exists = plat::file_stamp(path, &mtime, &size);
+  return exists ? mtime : 0;
 }
 // Both sources, rechecked every 0.5 s by file time: lighting_profiles.ini (exe folder, the launcher / user) and the
 // current stage's mods\stages\stgNNNN.light.ini (a Stage Workshop build). A bad file keeps that source's previous rules.

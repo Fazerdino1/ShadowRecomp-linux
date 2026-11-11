@@ -17,9 +17,12 @@
 namespace engine_limits { void frame(); }   // engine_limits.cpp (#154)
 namespace first_boot_hint { void frame(); }   // first_boot_hint.cpp (#155)
 #include <SDL3/SDL.h>
+#include "platform.h"
+#ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
 #include <dwmapi.h>
+#endif
 #include <dolphin/gx.h>
 
 #include "gx/gx.hpp"
@@ -1693,10 +1696,7 @@ void init_window() {
     cache_dir = cache_override;
     cfg.cachePath = cache_dir.c_str();
   } else if (getenv("TEX_DUMP")) {
-    char exe[MAX_PATH];
-    GetModuleFileNameA(nullptr, exe, MAX_PATH);
-    cache_dir = exe;
-    cache_dir = cache_dir.substr(0, cache_dir.find_last_of("\\/")) + "\\cache";
+    cache_dir = plat::exe_dir() + "/cache";
     cfg.cachePath = cache_dir.c_str();
     cfg.allowTextureDumps = true;
   }
@@ -1706,6 +1706,7 @@ void init_window() {
   lighting::register_builtin_modules();   // cached lit pipelines must see all modules before warmup starts
   AuroraInfo info = aurora_initialize(1, argv, &cfg);
   g_window = info.window;
+#ifdef _WIN32
   if (g_window) {
     // Windows 11 draws a light 1-px outline around windows (looked like a white border on the right/bottom edge of
     // the picture). DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE removes it.
@@ -1714,6 +1715,7 @@ void init_window() {
       DwmSetWindowAttribute(hwnd, 34 /* DWMWA_BORDER_COLOR */, &none, sizeof none);
     }
   }
+#endif
   if (g_window && g_launcher_mode) {
     // the launcher: a compact window (points), centred; the game size is applied when Play is pressed
     int w = 0, h = 0;
@@ -1726,12 +1728,14 @@ void init_window() {
   settings::init_fonts();   // before the first ImGui frame; after sizing (the launcher's fonts follow its window)
   apply_display_settings();
   // --quiet (tests): keep the window behind everything and never take focus, so the user can keep working
+#ifdef _WIN32
   if (g_quiet && g_window) {
     if (HWND hwnd = (HWND)SDL_GetPointerProperty(SDL_GetWindowProperties(g_window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr)) {
       SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
       if (HWND fg = GetForegroundWindow(); fg && fg != hwnd) SetWindowPos(fg, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
   }
+#endif
   g_aurora_up = true;
   g_frame_active = aurora_begin_frame();
   logf("[gx] aurora initialised, frame active=%d\n", (int)g_frame_active);
@@ -1907,7 +1911,7 @@ void hw_wgp_write(uint32_t v, int size) {
   uint32_t& wglen = g_wglen;
   int n = size;
   if (wglen + (uint32_t)n < 32 && (n == 1 || n == 2 || n == 4)) {   // #152: no block completes - the bytes straight in
-    if (n == 4) { const uint32_t be = _byteswap_ulong(v); memcpy(wgbuf + wglen, &be, 4); }
+    if (n == 4) { const uint32_t be = bswap32(v); memcpy(wgbuf + wglen, &be, 4); }
     else if (n == 2) { wgbuf[wglen] = (uint8_t)(v >> 8); wgbuf[wglen + 1] = (uint8_t)v; }
     else wgbuf[wglen] = (uint8_t)v;
     wglen += n; g_wgp_total += n;

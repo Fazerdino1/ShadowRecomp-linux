@@ -15,7 +15,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <windows.h>
+#include "platform.h"
 
 namespace speed_ram { void frame(Cpu& c); }
 void f_802EEAF0(Cpu&);
@@ -33,9 +33,7 @@ struct Rules {
 } g;
 
 std::filesystem::path exe_dir() {
-  wchar_t w[MAX_PATH];
-  GetModuleFileNameW(nullptr, w, MAX_PATH);
-  return std::filesystem::path(w).parent_path();
+  return plat::exe_dir_path();
 }
 std::string slurp(const std::filesystem::path& p) {
   std::ifstream f(p);

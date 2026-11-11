@@ -16,7 +16,7 @@
 #include "osk.h"
 #include "sys.h"
 #include <imgui.h>
-#include <windows.h>
+#include "platform.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -187,10 +187,7 @@ bool g_presets_loaded = false;
 bool g_overlay = false;
 
 std::string presets_path() {
-  char exe[MAX_PATH];
-  GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  std::string p = exe;
-  return p.substr(0, p.find_last_of("\\/")) + "\\movement_presets.ini";
+  return plat::exe_dir() + "/movement_presets.ini";
 }
 void save_presets() {
   FILE* f = fopen(presets_path().c_str(), "w");
@@ -313,7 +310,7 @@ std::string clean_name(const std::string& in) {
   if (r.size() > kMaxName) r.resize(kMaxName);
   return r;
 }
-namespace { bool same_ci(const std::string& a, const char* b) { return _stricmp(a.c_str(), b) == 0; } }
+namespace { bool same_ci(const std::string& a, const char* b) { return plat::stricmp(a.c_str(), b) == 0; } }
 const char* name_problem(const std::string& raw, int except) {
   ensure_presets();
   const std::string n = clean_name(raw);

@@ -1,7 +1,7 @@
 // Memory setup, DOL loading and the post-apploader machine state.
 #include "sys.h"
 #include "hw.h"
-#include <windows.h>
+#include "platform.h"
 #include <cstring>
 #include <vector>
 #include <algorithm>
@@ -25,7 +25,7 @@ static void wr32(uint32_t ea, uint32_t v) { st32(ea, v); }
 
 bool boot_init(const std::string& root) {
   if (const char* mb = getenv("SHADOW_MEM1_MB")) g_mem1_size = std::clamp<uint32_t>((uint32_t)atoi(mb), 24, RT_RAM_SIZE >> 20) << 20;
-  g_ram = (uint8_t*)VirtualAlloc(nullptr, RT_RAM_SIZE + 0x1000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+  g_ram = (uint8_t*)plat::alloc_ram(RT_RAM_SIZE + 0x1000);
   if (!g_ram) { logf("cannot allocate guest RAM\n"); return false; }
   if (!disc_init(root)) return false;
   auto dol = slurp(root + "/sys/main.dol");

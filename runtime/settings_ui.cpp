@@ -20,7 +20,7 @@ void boss_hud_draw();   // boss_ai.cpp (#126): boss name over the shared HP bar 
 #include <algorithm>
 #include <vector>
 #define NOMINMAX
-#include <windows.h>
+#include "platform.h"
 #include <cstdio>
 #include <cctype>
 #include <cstring>
@@ -39,10 +39,7 @@ namespace settings {
 Values g;
 
 static std::string ini_path() {
-  char exe[MAX_PATH];
-  GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  std::string p = exe;
-  return p.substr(0, p.find_last_of("\\/")) + "\\shadow_settings.ini";
+  return plat::exe_dir() + "/shadow_settings.ini";
 }
 
 // the lighting engine's settings, saved by name
@@ -81,22 +78,20 @@ static const struct { const char* key; bool Values::*field; } kLightBools[] = {
 // ---- live settings: the launcher (launcher\shadow_launcher.pyw) is a separate window that rewrites the ini; the game
 // follows within ~0.3 s (draw() -> poll_live). The game's own save() records its write time so it is not re-read.
 static uint64_t ini_mtime() {
-  WIN32_FILE_ATTRIBUTE_DATA d;
-  if (!GetFileAttributesExA(ini_path().c_str(), GetFileExInfoStandard, &d)) return 0;
-  return ((uint64_t)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
+  uint64_t t = 0;
+  return plat::file_stamp(ini_path(), &t) ? t : 0;
 }
 static uint64_t s_ini_seen = 0;
 // Session-only switches (cheats, unlock every stage) live in shadow_cheats.ini next to the ini: the launcher writes
 // cheatN=0/1 and unlock_all_stages=0/1 and resets them to 0 whenever it starts, so they never stay on by accident.
 static std::string cheats_path() {
   std::string p = ini_path();
-  return p.substr(0, p.find_last_of("\\/")) + "\\shadow_cheats.ini";
+  return p.substr(0, p.find_last_of("\\/")) + "/shadow_cheats.ini";
 }
 static void poll_cheats() {
   static uint64_t seen = ~0ull;
-  WIN32_FILE_ATTRIBUTE_DATA d;
-  if (!GetFileAttributesExA(cheats_path().c_str(), GetFileExInfoStandard, &d)) return;
-  const uint64_t t = ((uint64_t)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
+  uint64_t t = 0;
+  if (!plat::file_stamp(cheats_path(), &t)) return;
   if (t == seen) return;
   seen = t;
   FILE* f = fopen(cheats_path().c_str(), "r");
@@ -164,7 +159,7 @@ static void publish_state() {
   for (const auto& w : kLiveWords) fprintf(f, "%s=%d\n", w.key, cur[n++]);
   fprintf(f, "in_stage=%d\n", cur[n]);
   fclose(f);
-  MoveFileExA(tmp.c_str(), dst.c_str(), MOVEFILE_REPLACE_EXISTING);
+  plat::replace_file(tmp, dst);
 }
 
 static void poll_live() {

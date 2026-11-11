@@ -7,17 +7,14 @@
 #include <cstdlib>
 #include <string>
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include "platform.h"
 
 void hud_text_show(const char* text, double seconds);   // settings_ui.cpp
 
 namespace first_boot_hint {
 namespace {
 std::string marker() {
-  char exe[MAX_PATH];
-  GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  std::string d = exe;
-  return d.substr(0, d.find_last_of("\\/")) + "\\shadow_menu_seen";
+  return plat::exe_dir() + "/shadow_menu_seen";
 }
 int g_seen = -1;   // -1 not checked yet
 bool g_shown = false;
@@ -29,7 +26,7 @@ void frame() {
   if (g_shown) return;
   if (g_seen < 0) {
     const char* e = getenv("FIRST_HINT");
-    g_seen = (e && e[0] == '0') || GetFileAttributesA(marker().c_str()) != INVALID_FILE_ATTRIBUTES ? 1 : 0;
+    g_seen = (e && e[0] == '0') || plat::exists(marker()) ? 1 : 0;
     g_t0 = sys_time_ns();
   }
   if (g_seen || sys_time_ns() - g_t0 < 2000000000ull) return;

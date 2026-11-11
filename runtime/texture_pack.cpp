@@ -22,7 +22,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STBTT_STATIC
 #include <imstb_truetype.h>   // TrueType rasteriser (ships with Dear ImGui): card template text
-#include <windows.h>
+#include "platform.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -58,9 +58,7 @@ fs::path folder() {
     std::error_code ec;
     if (fs::is_directory(p, ec)) return p;
   }
-  wchar_t exe[MAX_PATH];
-  GetModuleFileNameW(nullptr, exe, MAX_PATH);
-  return fs::path(exe).parent_path() / L"textures" / L"Custom";
+  return plat::exe_dir_path() / L"textures" / L"Custom";
 }
 
 // ---- UI masters
@@ -88,9 +86,7 @@ std::unordered_map<std::string, std::pair<std::shared_ptr<MasterImage>, const Sh
 int g_built_count = 0;
 
 fs::path exe_dir() {
-  wchar_t exe[MAX_PATH];
-  GetModuleFileNameW(nullptr, exe, MAX_PATH);
-  return fs::path(exe).parent_path();
+  return plat::exe_dir_path();
 }
 
 void read_layout() {   // once; ui_masters.txt is written by tools/ui_master.py
@@ -144,7 +140,7 @@ bool decode_png(const fs::path& path, MasterImage& img) {
   png_image pi;
   memset(&pi, 0, sizeof pi);
   pi.version = PNG_IMAGE_VERSION;
-  FILE* f = _wfopen(path.c_str(), L"rb");
+  FILE* f = plat::fopen_path(path, "rb");
   if (!f) return false;
   bool ok = png_image_begin_read_from_stdio(&pi, f);
   if (ok) {
@@ -471,7 +467,7 @@ void resolve_card_image(CardImage& im, const fs::path& tmpl_dir, const std::vect
   // several matches in Custom (the generated art + an improved copy dropped in later): the biggest picture wins
   auto png_pixels = [](const fs::path& p) -> uint64_t {
     uint8_t h[24] = {};
-    FILE* f = _wfopen(p.c_str(), L"rb");
+    FILE* f = plat::fopen_path(p, "rb");
     if (!f) return 0;
     size_t n = fread(h, 1, sizeof h, f);
     fclose(f);
@@ -811,7 +807,7 @@ void index_originals() {   // under g_orig_mutex
          !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
       if (!it->is_regular_file(ec)) continue;
       const fs::path& p = it->path();
-      if (p.native().find(L"\\UI\\") != std::wstring::npos) continue;
+      if (p.generic_wstring().find(L"/UI/") != std::wstring::npos) continue;
       std::string k = key_of(p);
       if (!k.empty()) g_orig_index.emplace(k, p);
     }
@@ -904,7 +900,7 @@ bool read_file(void*, const char* path, std::vector<uint8_t>& out) {
       if (decode_png(real, img) && colour_match(name, pct, img) && encode_png(img.rgba, img.w, img.h, out)) return true;
     }
   }
-  FILE* f = _wfopen(real.c_str(), L"rb");
+  FILE* f = plat::fopen_path(real, "rb");
   if (!f) return false;
   fseek(f, 0, SEEK_END);
   long n = ftell(f);
@@ -941,7 +937,7 @@ uint64_t signature(const fs::path& root) {
        !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
     if (!it->is_regular_file(ec)) continue;
     auto mix = [&](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
-    for (wchar_t c : it->path().native()) mix(c);
+    for (auto c : it->path().native()) mix(c);
     mix(it->file_size(ec));
     mix((uint64_t)it->last_write_time(ec).time_since_epoch().count());
   }
@@ -950,11 +946,11 @@ uint64_t signature(const fs::path& root) {
 
 struct LooseFile { fs::path path; std::string key; uint64_t stamp; };
 struct PackScan {
-  std::unordered_map<std::wstring, LooseFile> loose;
+  std::unordered_map<fs::path::string_type, LooseFile> loose;
   uint64_t signature = 1469598103934665603ull, complex = 1469598103934665603ull;
 };
 struct LooseReg { std::string virtual_path; aurora::texture::ReplacementRegistration reg; uint64_t stamp; };
-std::unordered_map<std::wstring, LooseReg> g_loose;
+std::unordered_map<fs::path::string_type, LooseReg> g_loose;
 uint64_t g_complex_sig = 0, g_live_id = 0;
 std::mutex g_scan_mutex;
 std::optional<PackScan> g_pending_scan, g_reload_scan;
@@ -975,7 +971,7 @@ PackScan scan_pack() {
     if (!it->is_regular_file(ec) || it->path().filename().string().ends_with(".tmp.png")) continue;
     const fs::path p = it->path();
     const auto stamp = file_stamp(p);
-    for (wchar_t c : p.native()) scan.signature = (scan.signature ^ c) * 1099511628211ull;
+    for (auto c : p.native()) scan.signature = (scan.signature ^ c) * 1099511628211ull;
     scan.signature = (scan.signature ^ stamp) * 1099511628211ull;
     const std::string key = key_of(p);
     if (!key.empty()) scan.loose.emplace(p.native(), LooseFile{p, key, stamp});
@@ -987,7 +983,7 @@ PackScan scan_pack() {
     for (const MasterLayout& m : g_layout_masters)
       dependency |= lower(p.stem().string()) == lower(m.name);
     if (!dependency) continue;  // split-group sources and PC overlay assets are not texture registrations
-    for (wchar_t c : p.native()) scan.complex = (scan.complex ^ c) * 1099511628211ull;
+    for (auto c : p.native()) scan.complex = (scan.complex ^ c) * 1099511628211ull;
     scan.complex = (scan.complex ^ stamp) * 1099511628211ull;
   }
   return scan;

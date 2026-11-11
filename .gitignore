@@ -17,6 +17,9 @@
 !/CMakeLists.txt
 !/build.cmd
 !/build_env.cmd
+# Linux build (PORTAGE_LINUX.md)
+!/build.sh
+!/PORTAGE_LINUX.md
 # inputs of tools/gen.py (function overrides / hooks)
 !/overrides.txt
 !/callhooks.txt

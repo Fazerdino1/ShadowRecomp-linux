@@ -7,14 +7,23 @@
 // &&SystemData + root), and Dolphin's compressed .rvz / .wia / .gcz through DolphinTool when Dolphin is installed.
 // Tests: SHADOW_IMPORT_FROM=<disc or folder> imports without asking (with --quiet: no window at all, unless
 // SHADOW_FIRSTRUN_WINDOW=1 - then the window shows without taking focus).
+// Linux: the same import, with the file picker and the progress window from SDL3 (already linked for the game) and a
+// built-in SHA-1; the Win32 window below is compiled on Windows only.
 #include "first_run.h"
+#include "platform.h"
+#ifdef _WIN32
 #include <windows.h>
 #include <shobjidl.h>
 #include <bcrypt.h>
 #include <commctrl.h>
+#else
+#include <SDL3/SDL.h>
+#endif
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <map>
@@ -23,12 +32,14 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "uuid.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
+#endif
 
 namespace fs = std::filesystem;
 
@@ -44,34 +55,21 @@ constexpr int kRevision = 0;
 
 // --- small helpers --------------------------------------------------------------------------------------------------
 
-std::wstring widen(const std::string& s) {
-  if (s.empty()) return {};
-  int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
-  std::wstring w(n, L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
-  return w;
-}
-std::string utf8(const std::wstring& w) {
-  if (w.empty()) return {};
-  int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
-  std::string s(n, '\0');
-  WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr);
-  return s;
+std::string utf8(const fs::path& p) { return plat::utf8(p); }
+std::string generic_utf8(const fs::path& p) {   // '/' separators on every system
+  const auto g = p.generic_u8string();
+  return std::string(g.begin(), g.end());
 }
 std::string lower(std::string s) {
   for (auto& c : s) c = (char)tolower((unsigned char)c);
   return s;
 }
 uint32_t be32(const uint8_t* p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
-fs::path exe_dir() {
-  wchar_t exe[MAX_PATH];
-  GetModuleFileNameW(nullptr, exe, MAX_PATH);
-  return fs::path(exe).parent_path();
-}
+fs::path exe_dir() { return plat::exe_dir_path(); }
 bool read_at(const fs::path& p, uint64_t off, void* buf, size_t n) {
-  FILE* f = _wfopen(p.c_str(), L"rb");
+  FILE* f = plat::fopen_path(p, "rb");
   if (!f) return false;
-  bool ok = _fseeki64(f, (long long)off, SEEK_SET) == 0 && fread(buf, 1, n, f) == n;
+  bool ok = plat::fseek64(f, (int64_t)off, SEEK_SET) == 0 && fread(buf, 1, n, f) == n;
   fclose(f);
   return ok;
 }
@@ -80,10 +78,11 @@ bool is_file(const fs::path& p) { std::error_code ec; return fs::is_regular_file
 fs::path child_nocase(const fs::path& dir, const char* name) {   // dir\name, any letter case
   std::error_code ec;
   for (auto& e : fs::directory_iterator(dir, ec))
-    if (lower(utf8(e.path().filename().wstring())) == lower(name)) return e.path();
+    if (lower(utf8(e.path().filename())) == lower(name)) return e.path();
   return {};
 }
 
+#ifdef _WIN32
 struct Sha1 {
   BCRYPT_ALG_HANDLE alg = nullptr;
   BCRYPT_HASH_HANDLE h = nullptr;
@@ -104,6 +103,63 @@ struct Sha1 {
     return s;
   }
 };
+#else
+struct Sha1 {   // FIPS 180-1, plain C++; like the Windows one it resets itself in hex()
+  uint32_t h[5];
+  uint64_t len = 0;
+  uint8_t buf[64];
+  size_t fill = 0;
+  Sha1() { reset(); }
+  void reset() {
+    h[0] = 0x67452301u; h[1] = 0xEFCDAB89u; h[2] = 0x98BADCFEu; h[3] = 0x10325476u; h[4] = 0xC3D2E1F0u;
+    len = 0; fill = 0;
+  }
+  static uint32_t rol(uint32_t v, int n) { return (v << n) | (v >> (32 - n)); }
+  void block(const uint8_t* p) {
+    uint32_t w[80];
+    for (int i = 0; i < 16; ++i) w[i] = be32(p + 4 * i);
+    for (int i = 16; i < 80; ++i) w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+    for (int i = 0; i < 80; ++i) {
+      uint32_t f, k;
+      if (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999u; }
+      else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1u; }
+      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDCu; }
+      else { f = b ^ c ^ d; k = 0xCA62C1D6u; }
+      const uint32_t t = rol(a, 5) + f + e + k + w[i];
+      e = d; d = c; c = rol(b, 30); b = a; a = t;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+  }
+  void add(const void* data, size_t n) {
+    const uint8_t* p = (const uint8_t*)data;
+    len += n;
+    if (fill) {
+      const size_t take = std::min(n, 64 - fill);
+      memcpy(buf + fill, p, take);
+      fill += take; p += take; n -= take;
+      if (fill < 64) return;
+      block(buf);
+      fill = 0;
+    }
+    for (; n >= 64; p += 64, n -= 64) block(p);
+    if (n) { memcpy(buf, p, n); fill = n; }
+  }
+  std::string hex() {
+    const uint64_t bits = len * 8;
+    const uint8_t one = 0x80, zero = 0;
+    add(&one, 1);
+    while (fill != 56) add(&zero, 1);
+    uint8_t tail[8];
+    for (int i = 0; i < 8; ++i) tail[i] = (uint8_t)(bits >> (56 - 8 * i));
+    add(tail, 8);
+    char s[41];
+    for (int i = 0; i < 5; ++i) snprintf(s + 8 * i, 9, "%08x", h[i]);
+    reset();
+    return s;
+  }
+};
+#endif
 
 // --- what did the player pick ---------------------------------------------------------------------------------------
 
@@ -114,6 +170,7 @@ struct Info {
   std::string message;   // one plain sentence for the player
 };
 
+#ifdef _WIN32
 fs::path find_dolphin_tool() {
   std::vector<fs::path> c;
   wchar_t buf[MAX_PATH];
@@ -131,6 +188,29 @@ fs::path find_dolphin_tool() {
     if (is_file(p)) return p;
   return {};
 }
+#else
+fs::path find_dolphin_tool() {   // SHADOW_DOLPHINTOOL, next to the game, then the PATH (the distribution's dolphin-emu package)
+  std::vector<fs::path> c;
+  if (const char* e = getenv("SHADOW_DOLPHINTOOL")) c.push_back(e);
+  c.push_back(exe_dir() / "dolphin-tool");
+  c.push_back(exe_dir() / "DolphinTool");
+  if (const char* path = getenv("PATH")) {
+    std::string dirs = path;
+    for (size_t at = 0; at <= dirs.size();) {
+      size_t end = dirs.find(':', at);
+      if (end == std::string::npos) end = dirs.size();
+      if (end > at) {
+        c.push_back(fs::path(dirs.substr(at, end - at)) / "dolphin-tool");
+        c.push_back(fs::path(dirs.substr(at, end - at)) / "DolphinTool");
+      }
+      at = end + 1;
+    }
+  }
+  for (auto& p : c)
+    if (is_file(p)) return p;
+  return {};
+}
+#endif
 
 Info from_boot(const std::string& kind, const uint8_t* boot) {
   Info i;
@@ -170,8 +250,8 @@ Info identify(fs::path p) {
     return none;
   }
   // a file picked inside an extracted disc (sys\boot.bin, sys\main.dol): use its disc folder
-  if (is_file(p) && lower(utf8(p.parent_path().filename().wstring())) == "sys") {
-    const std::string n = lower(utf8(p.filename().wstring()));
+  if (is_file(p) && lower(utf8(p.parent_path().filename())) == "sys") {
+    const std::string n = lower(utf8(p.filename()));
     if (n == "boot.bin" || n == "main.dol" || n == "bi2.bin" || n == "fst.bin" || n == "apploader.img") p = p.parent_path().parent_path();
   }
   uint8_t boot[0x440] = {};
@@ -188,7 +268,7 @@ Info identify(fs::path p) {
       i.root = p;
     } else {
       none.kind = "folder";
-      none.message = "This folder isn't an extracted GameCube disc (there is no sys\\boot.bin in it).";
+      none.message = "This folder isn't an extracted GameCube disc (there is no sys/boot.bin in it).";
       return none;
     }
     return i;
@@ -283,12 +363,12 @@ void folder_entries(const Info& info, std::map<std::string, Src>& out) {
     files = info.root / L"root";
   } else {
     for (const char* n : {"boot.bin", "bi2.bin", "apploader.img", "main.dol", "fst.bin"})
-      out[std::string("sys/") + n] = Src{info.root / L"sys" / widen(n)};
+      out[std::string("sys/") + n] = Src{info.root / L"sys" / n};
     files = info.root / L"files";
   }
   std::error_code ec;
   for (auto it = fs::recursive_directory_iterator(files, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
-    if (it->is_regular_file(ec)) out[lower("files/" + utf8(fs::relative(it->path(), files, ec).generic_wstring()))] = Src{it->path()};
+    if (it->is_regular_file(ec)) out[lower("files/" + generic_utf8(fs::relative(it->path(), files, ec)))] = Src{it->path()};
 }
 
 // --- the import -----------------------------------------------------------------------------------------------------
@@ -314,24 +394,21 @@ std::string json_str(const std::string& s) {
 }
 
 bool run_dolphin_convert(const fs::path& tool, const fs::path& in, const fs::path& out, Progress& pr) {
-  std::wstring cmd = L"\"" + tool.wstring() + L"\" convert -i \"" + in.wstring() + L"\" -o \"" + out.wstring() + L"\" -f iso";
-  STARTUPINFOW si{sizeof si};
-  PROCESS_INFORMATION pi{};
-  if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) return false;
-  while (WaitForSingleObject(pi.hProcess, 200) == WAIT_TIMEOUT)
-    if (pr.cancel) TerminateProcess(pi.hProcess, 1);
-  DWORD code = 1;
-  GetExitCodeProcess(pi.hProcess, &code);
-  CloseHandle(pi.hThread);
-  CloseHandle(pi.hProcess);
+  static volatile bool cancel;   // mirrors pr.cancel for the platform's wait loop
+  cancel = false;
+  std::atomic<bool> finished{false};
+  std::thread watch([&] { while (!finished) { if (pr.cancel) cancel = true; plat::sleep_ms(100); } });
+  const int code = plat::run_and_wait(tool, {"convert", "-i", utf8(in), "-o", utf8(out), "-f", "iso"}, &cancel);
+  finished = true;
+  watch.join();
   return code == 0 && !pr.cancel && is_file(out);
 }
 
 Result import_disc(const fs::path& src_in, const fs::path& dest, Progress& pr) {
   Result r;
   std::error_code ec;
-  const fs::path work = dest.wstring() + L".importing";
-  const fs::path conv = dest.wstring() + L".convert.iso";
+  const fs::path work = fs::path(dest).concat(".importing");
+  const fs::path conv = fs::path(dest).concat(".convert.iso");
   fs::path src = src_in;
   auto fail = [&](const std::string& msg) {
     fs::remove_all(work, ec);
@@ -349,12 +426,12 @@ Result import_disc(const fs::path& src_in, const fs::path& dest, Progress& pr) {
   pr.total = total;
   pr.done = 0;
   fs::create_directories(dest.parent_path(), ec);
-  ULARGE_INTEGER freeb{};
-  if (GetDiskFreeSpaceExW(dest.parent_path().c_str(), &freeb, nullptr, nullptr)) {
+  uint64_t free_bytes = 0;
+  if (plat::free_space(dest.parent_path(), &free_bytes)) {
     const uint64_t need = total + (64ull << 20) + (info.kind == "rvz" || info.kind == "wia" || info.kind == "gcz" ? 1460ull << 20 : 0);
-    if (freeb.QuadPart < need) {
+    if (free_bytes < need) {
       char m[200];
-      snprintf(m, sizeof m, "Not enough free space: the game needs %.1f GB, %.1f GB is free on that drive.", need / 1073741824.0, freeb.QuadPart / 1073741824.0);
+      snprintf(m, sizeof m, "Not enough free space: the game needs %.1f GB, %.1f GB is free on that drive.", need / 1073741824.0, free_bytes / 1073741824.0);
       return fail(m);
     }
   }
@@ -375,7 +452,7 @@ Result import_disc(const fs::path& src_in, const fs::path& dest, Progress& pr) {
   }
   fs::remove_all(work, ec);
   if (!fs::create_directories(work, ec) && !is_dir(work))
-    return fail("Can't write next to shadow.exe. Move the game folder somewhere you own (for example Documents) and start it again.");
+    return fail("Can't write next to the game. Move the game folder somewhere you own (for example Documents) and start it again.");
   std::vector<uint8_t> buf(4 << 20);
   Sha1 sha;
   std::vector<std::string> bad, missing;
@@ -386,16 +463,16 @@ Result import_disc(const fs::path& src_in, const fs::path& dest, Progress& pr) {
     if (it == have.end()) { missing.push_back(e.path); pr.done += e.size; continue; }
     const Src& s = it->second;
     pr.set(e.path);
-    const fs::path out = work / widen(e.path);
+    const fs::path out = work / plat::from_utf8(e.path);
     fs::create_directories(out.parent_path(), ec);
-    FILE* in = _wfopen(s.file.c_str(), L"rb");
-    FILE* w = _wfopen(out.c_str(), L"wb");
+    FILE* in = plat::fopen_path(s.file, "rb");
+    FILE* w = plat::fopen_path(out, "wb");
     if (!w) { if (in) fclose(in); return fail("Can't write the game files (is the drive full or read-only?)."); }
     uint64_t n = 0;
     bool short_read = !in;
     if (in) {
       uint64_t left = s.slice ? s.size : UINT64_MAX;
-      if (s.slice && _fseeki64(in, (long long)s.off, SEEK_SET) != 0) short_read = true;
+      if (s.slice && plat::fseek64(in, (int64_t)s.off, SEEK_SET) != 0) short_read = true;
       while (!short_read && left > 0 && !pr.cancel) {
         const size_t want = (size_t)std::min<uint64_t>(buf.size(), left);
         const size_t got = fread(buf.data(), 1, want, in);
@@ -420,18 +497,17 @@ Result import_disc(const fs::path& src_in, const fs::path& dest, Progress& pr) {
     if (!missing.empty()) m += std::string(bad.empty() ? "" : "; ") + std::to_string(missing.size()) + " file(s) are missing (first: " + missing[0] + ")";
     return fail(m + ". Make a fresh dump of your disc and try again.");
   }
-  if (FILE* j = _wfopen((work / L"import.json").c_str(), L"w")) {
-    SYSTEMTIME t;
-    GetLocalTime(&t);
+  if (FILE* j = plat::fopen_path(work / L"import.json", "w")) {
+    const plat::LocalTime t = plat::local_time();
     fprintf(j, "{\n \"game_id\": \"%s\",\n \"revision\": %d,\n \"source\": %s,\n \"format\": \"%s\",\n \"files\": %d,\n \"bytes\": %llu,\n"
                " \"imported\": \"%04d-%02d-%02d %02d:%02d:%02d\",\n \"tool\": \"shadow.exe first run (runtime/first_run.cpp)\"\n}\n",
-            kGameId, kRevision, json_str(src == conv ? std::string("converted image") : utf8(fs::absolute(src_in, ec).wstring())).c_str(),
-            info.kind.c_str(), checked, (unsigned long long)total, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+            kGameId, kRevision, json_str(src == conv ? std::string("converted image") : utf8(fs::absolute(src_in, ec))).c_str(),
+            info.kind.c_str(), checked, (unsigned long long)total, t.year, t.month, t.day, t.hour, t.minute, t.second);
     fclose(j);
   }
   fs::remove(conv, ec);
   if (fs::exists(dest, ec)) {
-    const fs::path old = dest.wstring() + L".old";
+    const fs::path old = fs::path(dest).concat(".old");
     fs::remove_all(old, ec);
     fs::rename(dest, old, ec);
     fs::rename(work, dest, ec);
@@ -443,10 +519,11 @@ Result import_disc(const fs::path& src_in, const fs::path& dest, Progress& pr) {
   pr.done = total;
   r.ok = true;
   r.message = "Shadow the Hedgehog (USA) checked: all " + std::to_string(checked) + " files match.";
-  fprintf(stderr, "[first-run] %s Unpacked to %s\n", r.message.c_str(), utf8(dest.wstring()).c_str());
+  fprintf(stderr, "[first-run] %s Unpacked to %s\n", r.message.c_str(), utf8(dest).c_str());
   return r;
 }
 
+#ifdef _WIN32
 // --- the window -----------------------------------------------------------------------------------------------------
 
 enum : UINT { WM_IMPORT_DONE = WM_APP + 1 };
@@ -466,6 +543,14 @@ struct Ui {
   RECT bar() const { return RECT{px(24), px(146), px(576), px(164)}; }
 };
 Ui* g_ui = nullptr;
+
+std::wstring widen(const std::string& s) {
+  if (s.empty()) return {};
+  int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+  std::wstring w(n, L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+  return w;
+}
 
 void set_status(Ui& u, const std::string& s, bool error) {
   u.error = error;
@@ -712,34 +797,252 @@ std::string ui_main(const fs::path& dest, const fs::path& auto_src, const std::s
   CoUninitialize();
   return out;
 }
+#else
+// --- the window (Linux) ---------------------------------------------------------------------------------------------
+// One small SDL window: the same text, three buttons and progress bar as the Windows one. The file / folder picker is
+// SDL's (the desktop's own dialog through the XDG portal, zenity as a fallback); a disc image or folder can also be
+// dropped on the window. Text uses SDL's built-in 8x8 font, so nothing but SDL is needed.
+
+struct Ui {
+  SDL_Window* wnd = nullptr;
+  SDL_Renderer* ren = nullptr;
+  bool importing = false, error = false, ok = false, quit = false;
+  std::string status;
+  fs::path dest;
+  Progress pr;
+  Result result;
+  std::thread worker;
+  std::atomic<bool> worker_done{false};
+  // the picker answers through a callback (possibly on another thread)
+  std::mutex pick_m;
+  bool pick_open = false, pick_ready = false;
+  std::string picked, pick_error;
+};
+constexpr int kW = 600, kH = 270;
+struct Button { SDL_FRect r; const char* label; int id; };
+enum { ID_IMAGE = 1, ID_FOLDER, ID_QUIT };
+
+void text(Ui& u, float x, float y, float scale, const std::string& s, SDL_Color c) {
+  SDL_SetRenderScale(u.ren, scale, scale);
+  SDL_SetRenderDrawColor(u.ren, c.r, c.g, c.b, 255);
+  SDL_RenderDebugText(u.ren, x / scale, y / scale, s.c_str());
+  SDL_SetRenderScale(u.ren, 1, 1);
+}
+// word wrap for the fixed 8-pixel font; returns the y after the last line
+float wrapped(Ui& u, float x, float y, float width, const std::string& s, SDL_Color c) {
+  const size_t cols = (size_t)(width / 8);
+  size_t at = 0;
+  while (at < s.size()) {
+    size_t n = std::min(cols, s.size() - at);
+    if (at + n < s.size()) {
+      const size_t sp = s.rfind(' ', at + n);
+      if (sp != std::string::npos && sp > at) n = sp - at;
+    }
+    text(u, x, y, 1, s.substr(at, n), c);
+    y += 12;
+    at += n;
+    while (at < s.size() && s[at] == ' ') ++at;
+  }
+  return y;
+}
+void SDLCALL on_picked(void* ud, const char* const* list, int) {
+  Ui& u = *(Ui*)ud;
+  std::lock_guard<std::mutex> l(u.pick_m);
+  u.pick_open = false;
+  if (!list) u.pick_error = SDL_GetError();   // no dialog could be shown
+  else if (list[0]) { u.picked = list[0]; u.pick_ready = true; }
+}
+void start_import(Ui& u, const fs::path& src) {
+  if (u.worker.joinable()) u.worker.join();
+  u.importing = true;
+  u.error = false;
+  u.status = "Checking...";
+  u.pr.cancel = false;
+  u.pr.done = 0;
+  u.worker_done = false;
+  u.worker = std::thread([&u, src] {
+    u.result = import_disc(src, u.dest, u.pr);
+    u.worker_done = true;
+  });
+}
+void chosen(Ui& u, const fs::path& p) {
+  if (u.importing) return;
+  Info i = identify(p);
+  if (!i.ok) { u.status = i.message; u.error = true; return; }
+  start_import(u, p);
+}
+void ask_close(Ui& u) {
+  if (!u.importing) { u.quit = true; return; }
+  const SDL_MessageBoxButtonData buttons[] = {{SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Stop"},
+                                              {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Keep going"}};
+  SDL_MessageBoxData box{};
+  box.flags = SDL_MESSAGEBOX_WARNING;
+  box.window = u.wnd;
+  box.title = "Shadow the Hedgehog";
+  box.message = "Stop unpacking the game? You can start again next time.";
+  box.numbuttons = 2;
+  box.buttons = buttons;
+  int hit = 0;
+  if (!SDL_ShowMessageBox(&box, &hit)) hit = 1;   // no message box on this desktop: closing means stop
+  if (hit == 1) u.pr.cancel = true;               // the worker stops and cleans up
+}
+void click(Ui& u, int id) {
+  if (id == ID_QUIT) { ask_close(u); return; }
+  if (u.importing) return;
+  {
+    std::lock_guard<std::mutex> l(u.pick_m);
+    if (u.pick_open) return;
+    u.pick_open = true;
+    u.pick_error.clear();
+  }
+  if (id == ID_FOLDER) {
+    SDL_ShowOpenFolderDialog(on_picked, &u, u.wnd, nullptr, false);
+  } else {
+    static const SDL_DialogFileFilter filters[] = {{"GameCube disc image (*.iso, *.gcm, *.rvz, *.wia, *.gcz)", "iso;gcm;rvz;wia;gcz"},
+                                                   {"All files", "*"}};
+    SDL_ShowOpenFileDialog(on_picked, &u, u.wnd, filters, 2, nullptr, false);
+  }
+}
+
+std::string ui_main(const fs::path& dest, const fs::path& auto_src, const std::string& dest_narrow, bool quiet) {
+  Ui u;
+  u.dest = dest;
+  if (quiet) SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO) || !SDL_CreateWindowAndRenderer("Shadow the Hedgehog - first start", kW * 3 / 2, kH * 3 / 2, 0, &u.wnd, &u.ren)) {
+    // no display: say how to do it from a terminal, and still honour SHADOW_IMPORT_FROM
+    fprintf(stderr, "[first-run] no window could be opened (%s).\n"
+                    "            Import your disc from a terminal instead:  SHADOW_IMPORT_FROM=/path/to/disc.iso %s\n",
+            SDL_GetError(), plat::exe_path().c_str());
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    if (auto_src.empty()) return "";
+    Result r = import_disc(auto_src, dest, u.pr);
+    return r.ok ? dest_narrow : "";
+  }
+  SDL_SetRenderLogicalPresentation(u.ren, kW, kH, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+  SDL_SetRenderVSync(u.ren, 1);
+  const Button buttons[] = {{{24, 222, 190, 32}, "Choose disc image...", ID_IMAGE},
+                            {{222, 222, 190, 32}, "Choose folder...", ID_FOLDER},
+                            {{476, 222, 100, 32}, "Quit", ID_QUIT}};
+  if (!auto_src.empty()) start_import(u, auto_src);
+  const SDL_Color kInk{20, 20, 24, 255}, kRed{180, 0, 0, 255}, kGrey{110, 110, 118, 255};
+  while (!u.quit) {
+    SDL_Event e;
+    if (SDL_WaitEventTimeout(&e, 50)) {
+      do {
+        switch (e.type) {
+          case SDL_EVENT_QUIT:
+          case SDL_EVENT_WINDOW_CLOSE_REQUESTED: ask_close(u); break;
+          case SDL_EVENT_KEY_DOWN:
+            if (e.key.key == SDLK_ESCAPE) ask_close(u);
+            else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_I) click(u, ID_IMAGE);
+            else if (e.key.key == SDLK_F) click(u, ID_FOLDER);
+            break;
+          case SDL_EVENT_MOUSE_BUTTON_UP: {
+            SDL_ConvertEventToRenderCoordinates(u.ren, &e);
+            const SDL_FPoint pt{e.button.x, e.button.y};
+            for (const Button& b : buttons)
+              if (SDL_PointInRectFloat(&pt, &b.r)) click(u, b.id);
+            break;
+          }
+          case SDL_EVENT_DROP_FILE:
+            if (e.drop.data) chosen(u, plat::from_utf8(e.drop.data));
+            break;
+          default: break;
+        }
+      } while (SDL_PollEvent(&e));
+    }
+    {   // the picker's answer
+      std::string p, err;
+      {
+        std::lock_guard<std::mutex> l(u.pick_m);
+        if (u.pick_ready) { p = u.picked; u.pick_ready = false; }
+        err.swap(u.pick_error);
+      }
+      if (!p.empty()) chosen(u, plat::from_utf8(p));
+      else if (!err.empty()) {
+        u.status = "No file dialog is available here (" + err + "). Drop your disc image or folder on this window instead.";
+        u.error = true;
+      }
+    }
+    if (u.importing) {
+      if (u.worker_done) {
+        u.worker.join();
+        u.importing = false;
+        if (u.result.ok) { u.ok = true; break; }
+        u.status = u.result.message;
+        u.error = true;
+      } else {
+        const uint64_t t = std::max<uint64_t>(u.pr.total, 1), d = std::min<uint64_t>(u.pr.done, t);
+        char s[400];
+        snprintf(s, sizeof s, "%.0f%%   %s", 100.0 * d / t, u.pr.get().c_str());
+        u.status = s;
+        u.error = false;
+      }
+    }
+    // draw
+    SDL_SetRenderDrawColor(u.ren, 255, 255, 255, 255);
+    SDL_RenderClear(u.ren);
+    text(u, 24, 20, 2, "Choose your Shadow the Hedgehog disc", kInk);
+    wrapped(u, 24, 56, 552,
+            "ShadowRecomp doesn't include the game. Choose your own copy of Shadow the Hedgehog for GameCube (USA, GUPE8P): "
+            "a disc image (.iso, .gcm, .rvz) or a disc folder extracted with Dolphin. You can also drop it on this window. "
+            "It is checked and unpacked once (about 1.4 GB) into the Shadow folder next to the game.", kInk);
+    if (u.importing) {
+      const SDL_FRect bar{24, 146, 552, 18};
+      SDL_SetRenderDrawColor(u.ren, 200, 200, 200, 255);
+      SDL_RenderFillRect(u.ren, &bar);
+      const uint64_t t = std::max<uint64_t>(u.pr.total, 1), d = std::min<uint64_t>(u.pr.done, t);
+      const SDL_FRect fill{bar.x, bar.y, (float)(bar.w * (double)d / t), bar.h};
+      SDL_SetRenderDrawColor(u.ren, 178, 34, 34, 255);
+      SDL_RenderFillRect(u.ren, &fill);
+    }
+    wrapped(u, 24, 174, 552, u.status, u.error ? kRed : kInk);
+    for (const Button& b : buttons) {
+      const bool off = u.importing && b.id != ID_QUIT;
+      SDL_SetRenderDrawColor(u.ren, 232, 232, 236, 255);
+      SDL_RenderFillRect(u.ren, &b.r);
+      SDL_SetRenderDrawColor(u.ren, 120, 120, 128, 255);
+      SDL_RenderRect(u.ren, &b.r);
+      const std::string label = b.id == ID_QUIT && u.importing ? "Stop" : b.label;
+      text(u, b.r.x + (b.r.w - 8.0f * label.size()) / 2, b.r.y + 12, 1, label, off ? kGrey : kInk);
+    }
+    SDL_RenderPresent(u.ren);
+  }
+  if (u.worker.joinable()) { u.pr.cancel = true; u.worker.join(); }
+  SDL_DestroyRenderer(u.ren);
+  SDL_DestroyWindow(u.wnd);
+  SDL_QuitSubSystem(SDL_INIT_VIDEO);   // the game opens its own window afterwards (Aurora)
+  return u.ok ? dest_narrow : "";
+}
+#endif
 
 }  // namespace
 
-bool disc_present(const std::string& root) {
-  return GetFileAttributesA((root + "\\sys\\main.dol").c_str()) != INVALID_FILE_ATTRIBUTES;
-}
+bool disc_present(const std::string& root) { return plat::exists(root + "/sys/main.dol"); }
 
 std::string run(bool quiet) {
-  char exe[MAX_PATH];
-  GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  std::string dir = exe;
-  dir = dir.substr(0, dir.find_last_of("\\/"));
-  const std::string dest_narrow = dir + "\\Shadow";
+  const std::string dest_narrow = plat::exe_dir() + "/Shadow";
   const fs::path dest = exe_dir() / L"Shadow";
-  wchar_t from[MAX_PATH] = {};
-  const bool have_from = GetEnvironmentVariableW(L"SHADOW_IMPORT_FROM", from, MAX_PATH) > 0;
+  const char* from_env = getenv("SHADOW_IMPORT_FROM");
+  const bool have_from = from_env && *from_env;
+  const fs::path from = have_from ? plat::from_utf8(from_env) : fs::path();
   fprintf(stderr, "[first-run] no game disc found next to the exe: %s\n", quiet ? (have_from ? "importing SHADOW_IMPORT_FROM" : "--quiet, not asking") : "asking for it");
-  const bool window = !quiet || GetEnvironmentVariableW(L"SHADOW_FIRSTRUN_WINDOW", nullptr, 0) > 0;
+  const char* win_env = getenv("SHADOW_FIRSTRUN_WINDOW");
+  const bool window = !quiet || (win_env && *win_env);
   if (!window) {
     if (!have_from) return "";
     Progress pr;
     Result r = import_disc(from, dest, pr);
     return r.ok ? dest_narrow : "";
   }
+#ifdef _WIN32
   std::string out;
-  std::thread t([&] { out = ui_main(dest, have_from ? fs::path(from) : fs::path(), dest_narrow, quiet); });
+  std::thread t([&] { out = ui_main(dest, from, dest_narrow, quiet); });
   t.join();
   return out;
+#else
+  return ui_main(dest, from, dest_narrow, quiet);   // SDL video belongs on the main thread
+#endif
 }
 
 }  // namespace first_run

@@ -6,7 +6,7 @@
 #include <cstdarg>
 #include <cstdlib>
 #include <unordered_map>
-#include <windows.h>
+#include "platform.h"
 
 
 // Debug call tracing: TRACE_FN=8016A108,800454F8 logs each call (r3-r6, backtrace) of up to 4 guest functions.
@@ -57,8 +57,7 @@ void logf(const char* fmt, ...) {
 
 void sys_fatal() {
   fflush(stderr);
-  TerminateProcess(GetCurrentProcess(), 3);   // #153: no teardown (it can block on the GPU driver)
-  ExitProcess(3);
+  plat::terminate_now(3);   // #153: no teardown (it can block on the GPU driver)
 }
 
 void sys_backtrace(Cpu& c) {
@@ -272,20 +271,8 @@ void rt_poll(Cpu& c, uint32_t pc) {
   }
 }
 
-static LONG WINAPI crash_filter(EXCEPTION_POINTERS* ep) {
-  fprintf(stderr, "\n[crash] host exception %08lX at %p\n", ep->ExceptionRecord->ExceptionCode, ep->ExceptionRecord->ExceptionAddress);
-  {   // which module / thread (host faults inside Dawn or the runtime look alike in the guest backtrace)
-    HMODULE mod = nullptr;
-    char name[MAX_PATH] = "?";
-    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)ep->ExceptionRecord->ExceptionAddress, &mod))
-      GetModuleFileNameA(mod, name, sizeof name);
-    fprintf(stderr, "        in %s (+%llx), thread %lu\n", name, (unsigned long long)((char*)ep->ExceptionRecord->ExceptionAddress - (char*)mod), GetCurrentThreadId());
-  }
-  if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && ep->ExceptionRecord->NumberParameters >= 2)
-    fprintf(stderr, "        access violation %s address %p\n", ep->ExceptionRecord->ExceptionInformation[0] ? "writing" : "reading", (void*)ep->ExceptionRecord->ExceptionInformation[1]);
+static void crash_report() {   // after the platform's own lines about the host fault (platform_*.cpp)
   if (Cpu* c = sched_current_cpu()) sys_backtrace(*c);
-  fflush(stderr);
-  return EXCEPTION_CONTINUE_SEARCH;
 }
 // #153 (user: "very hard to close the game, it freezes"): closing never runs the process teardown. exit() / ExitProcess
 // first kill every other thread (the #114 watchdog with them), then run the static destructors and DLL detach: the Dawn
@@ -295,22 +282,13 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS* ep) {
 // and settings are saved when they change. Windows releases the GPU device with the process.
 void audio_stop_for_exit();   // audio.cpp
 [[noreturn]] void sys_exit_guarded(int code) {
-  const uint64_t t0 = GetTickCount64();
+  const uint64_t t0 = plat::tick_ms();
   // the window goes away at once (the kernel may need a moment to release a GPU device that is still busy)
-  EnumWindows([](HWND w, LPARAM) -> BOOL {
-    DWORD pid = 0;
-    GetWindowThreadProcessId(w, &pid);
-    if (pid == GetCurrentProcessId()) ShowWindow(w, SW_HIDE);
-    return TRUE;
-  }, 0);
-  if (HANDLE h = CreateThread(nullptr, 0, [](LPVOID) -> DWORD { audio_stop_for_exit(); return 0; }, nullptr, 0, nullptr)) {
-    WaitForSingleObject(h, 150);
-    CloseHandle(h);
-  }
-  fprintf(stderr, "[exit] fast exit (code %d, %llu ms): process terminated, no teardown\n", code, (unsigned long long)(GetTickCount64() - t0));
+  plat::hide_own_windows();
+  plat::run_with_timeout(audio_stop_for_exit, 150);
+  fprintf(stderr, "[exit] fast exit (code %d, %llu ms): process terminated, no teardown\n", code, (unsigned long long)(plat::tick_ms() - t0));
   fflush(stderr);
-  TerminateProcess(GetCurrentProcess(), (UINT)code);
-  ExitProcess((UINT)code);   // not reached
+  plat::terminate_now(code);
 }
 static void at_exit_report() {
   fprintf(stderr, "[exit] process exiting\n");
@@ -318,7 +296,7 @@ static void at_exit_report() {
   fflush(stderr);
 }
 void sys_install_crash_handlers() {
-  SetUnhandledExceptionFilter(crash_filter);
+  plat::install_crash_handler(crash_report);
   atexit(at_exit_report);
 }
 

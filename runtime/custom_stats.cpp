@@ -20,7 +20,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <windows.h>
+#include "platform.h"
 
 void f_8016B384(Cpu&);
 void f_8016B2A4(Cpu&);
@@ -43,9 +43,7 @@ struct Run {
 } g_run;
 
 fs::path exe_dir() {
-  wchar_t w[MAX_PATH];
-  GetModuleFileNameW(nullptr, w, MAX_PATH);
-  return fs::path(w).parent_path();
+  return plat::exe_dir_path();
 }
 std::string field(const std::string& s, const char* key) {   // "key": "value" / "key": number (flat, first match)
   const std::string k = std::string("\"") + key + "\"";
@@ -122,7 +120,11 @@ void write_line() {
   char when[32];
   const std::time_t t = std::time(nullptr);
   std::tm lt{};
+#ifdef _WIN32
   localtime_s(&lt, &t);
+#else
+  localtime_r(&t, &lt);
+#endif
   std::strftime(when, sizeof when, "%Y-%m-%d %H:%M:%S", &lt);
   const bool clear = g_run.result == "clear";
   std::string goals;
@@ -155,7 +157,7 @@ void write_line() {
   std::error_code ec;
   const fs::path p = exe_dir() / fs::u8path(g_side.stats);
   fs::create_directories(p.parent_path(), ec);
-  if (FILE* f = _wfopen(p.c_str(), L"ab")) { fprintf(f, "%s\n", line); fclose(f); }
+  if (FILE* f = plat::fopen_path(p, "ab")) { fprintf(f, "%s\n", line); fclose(f); }
   logf("[custom-stats] %s\n", line);
 }
 void end_run(const char* result, const std::string& route) {

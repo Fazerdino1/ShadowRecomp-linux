@@ -21,8 +21,7 @@
 #include <png.h>
 #include <cstring>
 #define NOMINMAX
-#include <windows.h>
-#include <shellapi.h>
+#include "platform.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -300,9 +299,7 @@ std::string u8g(const fs::path& p) {
   return std::string(s.begin(), s.end());
 }
 fs::path exe_dir() {
-  wchar_t exe[MAX_PATH];
-  GetModuleFileNameW(nullptr, exe, MAX_PATH);
-  return fs::path(exe).parent_path();
+  return plat::exe_dir_path();
 }
 fs::path textures_folder() {
   if (!g.custom_textures_dir.empty()) {
@@ -316,7 +313,7 @@ fs::path mods_folder() { return exe_dir() / L"mods" / L"files"; }
 void open_in_explorer(const fs::path& p) {
   std::error_code ec;
   fs::create_directories(p, ec);
-  ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  plat::open_folder(p);
 }
 
 // custom texture count, counted on a worker thread (a big folder takes a moment)
@@ -380,14 +377,13 @@ struct Art { ImTextureID tex = 0; float aspect = 1.0f; };
 Art g_emblem, g_hero;
 Art load_art(int id) {
   Art a;
-  HRSRC r = FindResourceW(nullptr, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10) /* RT_RCDATA */);
-  HGLOBAL h = r ? LoadResource(nullptr, r) : nullptr;
-  const void* data = h ? LockResource(h) : nullptr;
+  size_t data_size = 0;
+  const void* data = plat::resource(id, &data_size);   // Windows: RCDATA (shadow.rc); elsewhere: compiled in by CMake
   if (!data) return a;
   png_image pi;
   memset(&pi, 0, sizeof pi);
   pi.version = PNG_IMAGE_VERSION;
-  if (!png_image_begin_read_from_memory(&pi, data, SizeofResource(nullptr, r))) return a;
+  if (!png_image_begin_read_from_memory(&pi, data, data_size)) return a;
   pi.format = PNG_FORMAT_RGBA;
   std::vector<uint8_t> px(PNG_IMAGE_SIZE(pi));
   if (png_image_finish_read(&pi, nullptr, px.data(), 0, nullptr)) {
@@ -960,7 +956,7 @@ void page_models() {
     snprintf(help, sizeof help, "%.1f MB", m.size / 1048576.0);
     if (setting_toggle(m.rel.c_str(), help, &on)) {
       std::error_code ec;
-      fs::path target = on ? m.path.parent_path() / m.path.stem() : fs::path(m.path.native() + L".disabled");
+      fs::path target = on ? m.path.parent_path() / m.path.stem() : fs::path(m.path).concat(".disabled");
       fs::rename(m.path, target, ec);
       list_mods(true);
     }

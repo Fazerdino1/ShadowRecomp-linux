@@ -81,7 +81,7 @@ void log_mode(uint32_t boss) {
 #include <fstream>
 #include <sstream>
 #include <vector>
-#include <windows.h>
+#include "platform.h"
 namespace {
 struct Path { uint32_t type = 0; float speed = 300; std::vector<float> xz; };
 std::vector<Path> g_paths;
@@ -97,11 +97,8 @@ void load_paths() {
   std::string s;
   if (const char* e = getenv("BOSS_PATH")) s = e;
   else {
-    char exe[MAX_PATH];
-    GetModuleFileNameA(nullptr, exe, MAX_PATH);
-    std::string dir = exe;
-    dir = dir.substr(0, dir.find_last_of("\\/"));
-    std::ifstream f(dir + "\\mods\\boss_path.txt");
+    std::string dir = plat::exe_dir();
+    std::ifstream f(dir + "/mods/boss_path.txt");
     if (!f) return;
     std::stringstream ss;
     ss << f.rdbuf();

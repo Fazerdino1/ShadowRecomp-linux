@@ -5,8 +5,8 @@
 #include <algorithm>
 #include <cstring>
 #include <map>
-#define NOMINMAX
-#include <windows.h>
+#include <filesystem>
+#include "platform.h"
 
 namespace {
 struct Seg { uint64_t off, len; std::string path; uint64_t foff; const std::vector<uint8_t>* mem = nullptr; };
@@ -39,16 +39,13 @@ namespace {
 // Mods: <exe dir>\modsiles\<same path as on the disc> replaces that disc file (model swaps, tools/model_swap.py). A
 // replacement that is larger than the original is placed after the end of the disc and its file table entry is patched.
 std::string mods_dir() {
-  char exe[MAX_PATH];
-  GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  std::string d = exe;
-  return d.substr(0, d.find_last_of("\\/")) + "\\mods\\files";
+  return plat::exe_dir() + "/mods/files";
 }
 bool file_size(const std::string& p, uint64_t& n) {
   FILE* f = fopen(p.c_str(), "rb");
   if (!f) return false;
-  _fseeki64(f, 0, SEEK_END);
-  n = (uint64_t)_ftelli64(f);
+  plat::fseek64(f, 0, SEEK_END);
+  n = (uint64_t)plat::ftell64(f);
   fclose(f);
   return true;
 }
@@ -98,17 +95,17 @@ bool disc_init(const std::string& root) {
         dirend.push_back(be32(e + 8));
       } else {
         std::string p = root + "/files", rel;
-        for (auto& d : dirstack) rel += d + "\\";
+        for (auto& d : dirstack) rel += d + "/";
         rel += name;
         for (auto& d : dirstack) p += "/" + d;
         p += "/" + name;
         uint64_t off = be32(e + 4), len = be32(e + 8);
         uint64_t msize = 0;
-        std::string mp = mods + "\\" + rel;
+        std::string mp = plat::resolve_nocase(mods + "/" + rel);   // a mod made on Windows may differ in letter case
         // #120 character skin: <exe dir>\skins\<id>\shadow.one (agents/claude/scripts/build_skins.py) is Shadow's model archive
         static const char* const kSkins[] = {"", "y", "g", "o", "mb", "mp", "super", "evil", "sonic"};
-        if (rel == "character\\shadow.one" && settings::g.skin > 0 && settings::g.skin < 9) {
-          const std::string sp = mods.substr(0, mods.size() - 10) + "skins\\" + kSkins[settings::g.skin] + "\\shadow.one";
+        if (rel == "character/shadow.one" && settings::g.skin > 0 && settings::g.skin < 9) {
+          const std::string sp = mods.substr(0, mods.size() - 10) + "skins/" + kSkins[settings::g.skin] + "/shadow.one";
           if (file_size(sp, msize) && msize) mp = sp;
           else logf("disc: skin %d: %s missing, Shadow's own model\n", settings::g.skin, sp.c_str());
         }
@@ -128,7 +125,8 @@ bool disc_init(const std::string& root) {
           }
           logf("disc: mod %s (%llu bytes, was %u)\n", rel.c_str(), (unsigned long long)msize, be32(e + 8));
         }
-        g_segs.push_back({off, len, p, 0});
+        // the extracted disc keeps the names of the file table; a copy that went through another tool may not
+        g_segs.push_back({off, len, plat::resolve_nocase(p), 0});
       }
     }
   }
@@ -146,7 +144,7 @@ bool disc_init(const std::string& root) {
       for (uint32_t i = 1; i < n; ++i) {
         while (!ends.empty() && i >= ends.back()) { ends.pop_back(); stack.pop_back(); }
         const uint8_t* e = &g_fst_patched[i * 12];
-        std::string path; for (auto& d : stack) path += d + "\\";
+        std::string path; for (auto& d : stack) path += d + "/";
         path += lower(nm + ((e[1] << 16) | (e[2] << 8) | e[3]));
         if (e[0]) { dirs[path] = i; stack.push_back(lower(nm + ((e[1] << 16) | (e[2] << 8) | e[3]))); ends.push_back(be32(e + 8)); }
         else files[path] = i;
@@ -158,20 +156,18 @@ bool disc_init(const std::string& root) {
     std::vector<std::string> todo{""};
     while (!todo.empty()) {
       const std::string rel = todo.back(); todo.pop_back();
-      WIN32_FIND_DATAA fd; HANDLE h = FindFirstFileA((mods + "\\" + rel + "*").c_str(), &fd);
-      if (h == INVALID_HANDLE_VALUE) continue;
-      do {
-        const std::string name = fd.cFileName;
-        if (name == "." || name == "..") continue;
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) todo.push_back(rel + name + "\\");
-        else found.push_back({rel + name, ((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow});
-      } while (FindNextFileA(h, &fd));
-      FindClose(h);
+      std::error_code ec;
+      for (std::filesystem::directory_iterator it(mods + "/" + rel, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        std::error_code fe;
+        if (it->is_directory(fe)) todo.push_back(rel + name + "/");
+        else if (it->is_regular_file(fe)) found.push_back({rel + name, (uint64_t)it->file_size(fe)});
+      }
     }
     int added = 0;
     for (const auto& [rel, size] : found) {
       if (!size || files.count(lower(rel))) continue;
-      const size_t cut = rel.find_last_of('\\');
+      const size_t cut = rel.find_last_of('/');
       const std::string dir = cut == std::string::npos ? "" : lower(rel.substr(0, cut)), base = cut == std::string::npos ? rel : rel.substr(cut + 1);
       auto d = dirs.find(dir);
       if (d == dirs.end()) { logf("disc: new mod file %s skipped (folder %s is not on the disc)\n", rel.c_str(), dir.c_str()); continue; }
@@ -197,7 +193,7 @@ bool disc_init(const std::string& root) {
       put32(ne + 4, (uint32_t)off); put32(ne + 8, (uint32_t)size);
       ents.insert(ents.begin() + pos * 12, ne, ne + 12);
       g_fst_patched = ents; g_fst_patched.insert(g_fst_patched.end(), names.begin(), names.end());
-      g_segs.push_back({off, size, mods + "\\" + rel, 0});
+      g_segs.push_back({off, size, mods + "/" + rel, 0});
       logf("disc: NEW mod file %s (%llu bytes) added to the file table\n", rel.c_str(), (unsigned long long)size);
       ++added; scan(dirs, files);
     }
@@ -237,7 +233,7 @@ bool disc_read(uint64_t offset, uint8_t* dst, uint32_t len) {
         if (!g_cur) logf("disc: cannot open %s\n", s->path.c_str());
       }
       if (g_cur) {
-        _fseeki64(g_cur, (long long)in, SEEK_SET);
+        plat::fseek64(g_cur, (int64_t)in, SEEK_SET);
         fread(dst + done, 1, n, g_cur);
       }
       done += n;

@@ -25,8 +25,7 @@
 #include <vector>
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <windows.h>
-#include <shellapi.h>
+#include "platform.h"
 
 namespace fs = std::filesystem;
 namespace texture_extract {
@@ -37,9 +36,7 @@ std::mutex g_msg_mutex;
 std::string g_msg;
 
 fs::path exe_dir() {
-  wchar_t exe[MAX_PATH];
-  GetModuleFileNameW(nullptr, exe, MAX_PATH);
-  return fs::path(exe).parent_path();
+  return plat::exe_dir_path();
 }
 uint32_t le32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | (uint32_t(p[3]) << 24); }
 uint32_t be32(const uint8_t* p) { return (uint32_t(p[0]) << 24) | (p[1] << 16) | (p[2] << 8) | p[3]; }
@@ -448,7 +445,7 @@ void ensure_folders() {
   fs::create_directories(t / L"Original", ec);
   const fs::path readme = t / L"README.txt";
   if (!fs::exists(readme, ec))
-    if (FILE* f = _wfopen(readme.c_str(), L"wb")) {
+    if (FILE* f = plat::fopen_path(readme, "wb")) {
       fputs("Textures\r\n\r\n"
             "Original - the game's own textures as PNG. Fill it from the in-game menu: System > Extract the game's textures.\r\n"
             "           Look at them, edit a copy.\r\n"
@@ -485,7 +482,6 @@ std::string status() {
 }
 void open_folder() {
   ensure_folders();
-  const std::wstring p = (exe_dir() / L"textures").wstring();
-  ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  plat::open_folder(exe_dir() / L"textures");
 }
 }  // namespace texture_extract

@@ -16,7 +16,7 @@
 #include <aurora/gfx.hpp>
 #include <aurora/lighting.hpp>
 #define NOMINMAX
-#include <windows.h>
+#include "platform.h"
 #include <zlib.h>
 #include <algorithm>
 #include <array>
@@ -70,9 +70,7 @@ struct Chunk {
 };
 
 std::string exe_dir() {
-  char exe[MAX_PATH]; GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  const std::string p = exe;
-  return p.substr(0, p.find_last_of("\\/"));
+  return plat::exe_dir();
 }
 uint32_t u32at(const std::vector<uint8_t>& b, size_t o) { uint32_t v; memcpy(&v, &b[o], 4); return v; }
 float f32at(const std::vector<uint8_t>& b, size_t o) { float v; memcpy(&v, &b[o], 4); return v; }

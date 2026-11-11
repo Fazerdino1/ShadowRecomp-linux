@@ -16,7 +16,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <windows.h>
+#include "platform.h"
 
 namespace {
 struct Arena { uint32_t type; int shape; float cx, cz, a, b; };   // shape 0 circle (a = r), 1 box (a, b = width, depth), 2 ring (a = r, b = inner)
@@ -34,11 +34,8 @@ void load() {
   std::string s;
   if (const char* e = getenv("BOSS_ARENA")) s = e;
   else {
-    char exe[MAX_PATH];
-    GetModuleFileNameA(nullptr, exe, MAX_PATH);
-    std::string dir = exe;
-    dir = dir.substr(0, dir.find_last_of("\\/"));
-    std::ifstream f(dir + "\\mods\\boss_arena.txt");
+    std::string dir = plat::exe_dir();
+    std::ifstream f(dir + "/mods/boss_arena.txt");
     if (!f) return;
     std::stringstream ss;
     ss << f.rdbuf();

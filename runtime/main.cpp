@@ -5,12 +5,10 @@
 #include "input.h"
 #include "settings_ui.h"
 #include "first_run.h"
-#include <windows.h>
-#include <shellapi.h>
+#include "platform.h"
 #include <cstring>
 #include <cstdlib>
 #include <string>
-#include <io.h>
 #include <cstdio>
 
 extern void f_80003154(Cpu&);
@@ -24,28 +22,18 @@ bool g_boot_story = false;
 // The extracted disc (folder with sys\main.dol): --disc wins; otherwise look next to / above the exe, so a plain
 // double-click works from any working directory (play\shadow.exe finds ..\..\Shadow).
 static std::string find_disc() {
-  char exe[MAX_PATH];
-  GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  std::string dir = exe;
-  dir = dir.substr(0, dir.find_last_of("\\/"));
-  const std::string cands[] = {dir + "\\Shadow", dir + "\\..\\Shadow", dir + "\\..\\..\\Shadow", "../Shadow"};
+  const std::string dir = plat::exe_dir();
+  const std::string cands[] = {dir + "/Shadow", dir + "/../Shadow", dir + "/../../Shadow", "../Shadow"};
   for (auto& c : cands)
-    if (GetFileAttributesA((c + "\\sys\\main.dol").c_str()) != INVALID_FILE_ATTRIBUTES) return c;
+    if (plat::exists(c + "/sys/main.dol")) return c;
   return "../Shadow";
 }
 
 extern std::string g_disc_root;   // disc.cpp
 
-int main(int argc, char** argv) {
-  {   // #151: tabbed out / minimised, Windows 11 power throttling (EcoQoS: efficiency cores, low clocks) and timer
-      // throttling slowed the game thread enough to starve the audio queue (stutter). This process opts out of both.
-    PROCESS_POWER_THROTTLING_STATE pt{};
-    pt.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
-    pt.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
-    pt.StateMask = 0;   // controlled + off = never throttled
-    if (!getenv("TEST_ALLOW_THROTTLE")) SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &pt, sizeof pt);   // tests: A/B
-    timeBeginPeriod(1);
-  }
+static int game_main(int argc, char** argv) {
+  // #151 (Windows): no power / timer throttling when tabbed out. TEST_ALLOW_THROTTLE: tests, A/B. (platform_win32.cpp)
+  plat::process_setup(getenv("TEST_ALLOW_THROTTLE") != nullptr);
   std::string root = find_disc();
   bool no_launcher = getenv("SHADOW_NO_LAUNCHER") != nullptr;
   bool builtin_launcher = false;   // --builtin-launcher: the old in-window launcher (launcher.cpp)
@@ -87,17 +75,12 @@ int main(int argc, char** argv) {
   // When run from a console/launcher without redirection, send the log to <exe dir>\logs\shadow-<time>.log so a
   // crash report survives the window closing.
   // Also when started by double-click: a Windows-subsystem program then has no stderr at all.
-  HANDLE err = GetStdHandle(STD_ERROR_HANDLE);
-  if (_isatty(_fileno(stderr)) || err == nullptr || err == INVALID_HANDLE_VALUE) {
-    char exe[MAX_PATH];
-    GetModuleFileNameA(nullptr, exe, MAX_PATH);
-    std::string dir = exe;
-    dir = dir.substr(0, dir.find_last_of("\\/")) + "\\logs";
-    CreateDirectoryA(dir.c_str(), nullptr);
-    SYSTEMTIME t;
-    GetLocalTime(&t);
-    char path[MAX_PATH];
-    snprintf(path, sizeof path, "%s\\shadow-%04d%02d%02d-%02d%02d%02d.log", dir.c_str(), t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+  if (plat::stderr_needs_log_file()) {
+    const std::string dir = plat::exe_dir() + "/logs";
+    plat::make_dir(dir);
+    const plat::LocalTime t = plat::local_time();
+    char path[1024];
+    snprintf(path, sizeof path, "%s/shadow-%04d%02d%02d-%02d%02d%02d.log", dir.c_str(), t.year, t.month, t.day, t.hour, t.minute, t.second);
     fprintf(stderr, "logging to %s\n", path);
     if (!freopen(path, "w", stderr)) fprintf(stdout, "could not open log %s\n", path);
   }
@@ -107,7 +90,7 @@ int main(int argc, char** argv) {
   // player's game now runs above normal priority, and quiet test games below normal, so they never slow real play.
   // TEST_NORMAL_PRIORITY=1: both normal (A/B).
   if (!getenv("TEST_NORMAL_PRIORITY"))
-    SetPriorityClass(GetCurrentProcess(), g_quiet ? BELOW_NORMAL_PRIORITY_CLASS : ABOVE_NORMAL_PRIORITY_CLASS);
+    plat::set_priority(g_quiet);
   // The launcher (launcher.cpp): the window opens on it and the game boots when Play is pressed. Tests and tools
   // (--stage, --fast, --quiet, --no-launcher) go straight into the game.
   const bool plain_start = !no_launcher && !g_quiet && !g_mash && g_boot_stage == 0 && !g_boot_story;
@@ -119,21 +102,24 @@ int main(int argc, char** argv) {
     // opens no launcher; settings are in the in-game menu. --with-launcher opens the old launcher window next to it.
     // the launcher is its own window (launcher\shadow_launcher.pyw, Python + Tk): it edits shadow_settings.ini live while
     // the game runs. Opened next to the game when the game is started directly; a second copy just raises the first.
-    char exe[MAX_PATH];
-    GetModuleFileNameA(nullptr, exe, MAX_PATH);
-    std::string dir = exe;
-    dir = dir.substr(0, dir.find_last_of("\\/"));
-    // the launcher: ShadowLauncher.exe (tools/launcher_web, one exe, nothing to install) beside the game or in launcher\,
+    const std::string dir = plat::exe_dir();
+    // the launcher: ShadowLauncher.exe (tools/launcher_web, one exe, nothing to install) beside the game or in launcher/,
     // else the Python ones (forge_launcher.pyw, then shadow_launcher.pyw). --from-game: an open launcher stays the only one.
-    std::string launcher_exe = dir + "\\ShadowLauncher.exe";
-    if (GetFileAttributesA(launcher_exe.c_str()) == INVALID_FILE_ATTRIBUTES) launcher_exe = dir + "\\launcher\\ShadowLauncher.exe";
-    std::string script = dir + "\\launcher\\forge_launcher.pyw";
-    if (GetFileAttributesA(script.c_str()) == INVALID_FILE_ATTRIBUTES) script = dir + "\\launcher\\shadow_launcher.pyw";
-    if (GetFileAttributesA(launcher_exe.c_str()) != INVALID_FILE_ATTRIBUTES) {
-      ShellExecuteA(nullptr, "open", launcher_exe.c_str(), "--from-game", dir.c_str(), SW_SHOWNORMAL);
-    } else if (GetFileAttributesA(script.c_str()) != INVALID_FILE_ATTRIBUTES) {
-      const std::string args = "\"" + script + "\"";
-      ShellExecuteA(nullptr, "open", "pythonw", args.c_str(), dir.c_str(), SW_SHOWNORMAL);
+#ifdef _WIN32
+    const char* const kLauncherExe = "ShadowLauncher.exe";
+    const char* const kPython = "pythonw";
+#else
+    const char* const kLauncherExe = "ShadowLauncher";
+    const char* const kPython = "python3";
+#endif
+    std::string launcher_exe = dir + "/" + kLauncherExe;
+    if (!plat::exists(launcher_exe)) launcher_exe = dir + "/launcher/" + kLauncherExe;
+    std::string script = dir + "/launcher/forge_launcher.pyw";
+    if (!plat::exists(script)) script = dir + "/launcher/shadow_launcher.pyw";
+    if (plat::exists(launcher_exe)) {
+      plat::launch(launcher_exe, "--from-game", dir);
+    } else if (plat::exists(script)) {
+      plat::launch(kPython, "\"" + script + "\"", dir);
     }
   }
   // first start without a disc (release folder): ask for the player's own disc, check it, unpack to <exe>\Shadow
@@ -153,3 +139,7 @@ int main(int argc, char** argv) {
   logf("[boot] guest returned\n");
   return 0;
 }
+
+// Windows: the linker gives the main thread its 256 MiB stack. Elsewhere the game runs on a stack of that size made
+// here, still on the main thread (platform_posix.cpp).
+int main(int argc, char** argv) { return plat::run_on_big_stack(game_main, argc, argv); }

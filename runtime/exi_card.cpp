@@ -18,7 +18,7 @@
 // Program/erase complete when the device is deselected; then the card raises its EXI interrupt if enabled.
 // Status is reported as READY|UNLOCKED (0x41): with the unlocked bit set the SDK skips the DSP-based card unlock.
 #include "sys.h"
-#include <windows.h>
+#include "platform.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -54,14 +54,11 @@ uint32_t decode_addr() {
 void load() {
   if (g_loaded) return;
   g_loaded = true;
-  char exe[MAX_PATH];
-  GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  std::string dir = exe;
-  dir = dir.substr(0, dir.find_last_of("\\/")) + "\\saves";
-  CreateDirectoryA(dir.c_str(), nullptr);
-  g_path = dir + "\\MemoryCardA.raw";
+  std::string dir = plat::exe_dir() + "/saves";
+  plat::make_dir(dir);
+  g_path = dir + "/MemoryCardA.raw";
   if (const char* src = getenv("TEST_CARD")) {   // testing: start from this card (copied over this copy's own card first)
-    if (CopyFileA(src, g_path.c_str(), FALSE)) logf("[card] TEST_CARD %s copied in\n", src);
+    if (plat::copy_file(src, g_path)) logf("[card] TEST_CARD %s copied in\n", src);
   }
   g_mem.assign(kBytes, 0xFF);   // erased flash; the game offers to format a blank card
   if (FILE* f = fopen(g_path.c_str(), "rb")) {

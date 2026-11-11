@@ -14,7 +14,7 @@
 #include <fstream>
 #include <map>
 #include <sstream>
-#include <windows.h>
+#include "platform.h"
 
 namespace {
 std::set<uint32_t> g_stand;
@@ -217,14 +217,11 @@ void load_modes() {
   if (stage == g_mode_stage) return;
   g_mode_stage = stage;
   g_mode.clear();
-  char exe[MAX_PATH];
-  GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  std::string dir = exe;
-  dir = dir.substr(0, dir.find_last_of("\\/"));
+  std::string dir = plat::exe_dir();
   std::string s;
   if (const char* ej = getenv("ENEMY_AI_JSON")) s = ej;   // tests: the json itself (scenarios can't write mods/)
   else {
-    std::ifstream f(dir + "\\mods\\enemy_ai.json");
+    std::ifstream f(dir + "/mods/enemy_ai.json");
     if (!f) return;
     std::stringstream ss;
     ss << f.rdbuf();

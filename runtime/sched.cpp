@@ -1,7 +1,7 @@
 // Fiber based implementation of the Dolphin OS context switch primitives.
 #include "sched.h"
 #include "funcs.h"
-#include <windows.h>
+#include "platform.h"
 #include <unordered_map>
 #include <vector>
 
@@ -27,7 +27,7 @@ std::unordered_map<uint32_t, Fiber*> g_owner;      // OSContext (physical) -> ow
 
 constexpr uint32_t kMask = RT_RAM_MASK;
 
-void CALLBACK fiber_main(void* p) {
+void fiber_main(void* p) {
   Fiber* f = (Fiber*)p;
   logf("[sched] fiber %d starts at %08X lr=%08X r1=%08X\n", f->id, f->start_pc, f->start_lr, f->cpu->r[1]);
   Cpu& c = *f->cpu;
@@ -50,7 +50,7 @@ void switch_to(Fiber* t, int mode) {
   t->mode = mode;
   g_cur = t;
   g_exc_top = t->exc_top;
-  SwitchToFiber(t->handle);
+  plat::fiber_switch(t->handle);
   // resumed
   g_cur = me;
   g_exc_top = me->exc_top;
@@ -64,7 +64,7 @@ void reap_dead() {
     Fiber* f = g_fibers[i];
     if (!f || !f->dead || f == g_cur || f->exc_top) continue;   // never free a fiber with a pending exception frame
     for (auto it = g_owner.begin(); it != g_owner.end();) it = it->second == f ? g_owner.erase(it) : std::next(it);
-    DeleteFiber(f->handle);
+    plat::fiber_delete(f->handle);
     free(f->cpu);
     delete f;
     g_fibers[i] = nullptr;
@@ -75,7 +75,7 @@ void reap_dead() {
 void sched_init(Cpu& main_cpu) {
   Fiber* f = new Fiber();
   f->id = 0;
-  f->handle = ConvertThreadToFiber(nullptr);
+  f->handle = plat::fiber_from_thread();
   f->cpu = &main_cpu;
   g_fibers.push_back(f);
   g_cur = f;
@@ -162,7 +162,8 @@ void hle_OSLoadContext(Cpu& c) {
     f->cpu->budget = 4000;
     f->start_pc = ld32(ctx + 0x198);
     f->start_lr = ld32(ctx + 0x84);
-    f->handle = CreateFiberEx(1 << 16, 16 << 20, 0, fiber_main, f);
+    f->handle = plat::fiber_create(16 << 20, fiber_main, f);
+    if (!f->handle) rt_unimpl(c, 0, "OSLoadContext: no memory for a new thread stack");
     g_fibers.push_back(f);
     g_owner[key] = f;
     target = f;
