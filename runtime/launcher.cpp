@@ -1300,12 +1300,12 @@ void init_fonts() {
       }
     return io.Fonts->Fonts[0];
   };
-  f_body = load({"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"}, 15);
-  f_small = load({"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"}, 13);
-  f_label = load({"C:/Windows/Fonts/seguisb.ttf", "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf"}, 15);
-  f_h2 = load({"C:/Windows/Fonts/seguisb.ttf", "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf"}, 18);
-  f_h1 = load({"C:/Windows/Fonts/bahnschrift.ttf", "C:/Windows/Fonts/segoeuib.ttf"}, 28);
-  f_title = load({"C:/Windows/Fonts/bahnschrift.ttf", "C:/Windows/Fonts/segoeuib.ttf"}, 58);
+  f_body = load({"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf", plat::ui_font(false)}, 15);
+  f_small = load({"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf", plat::ui_font(false)}, 13);
+  f_label = load({"C:/Windows/Fonts/seguisb.ttf", "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf", plat::ui_font(true)}, 15);
+  f_h2 = load({"C:/Windows/Fonts/seguisb.ttf", "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf", plat::ui_font(true)}, 18);
+  f_h1 = load({"C:/Windows/Fonts/bahnschrift.ttf", "C:/Windows/Fonts/segoeuib.ttf", plat::ui_font(true)}, 28);
+  f_title = load({"C:/Windows/Fonts/bahnschrift.ttf", "C:/Windows/Fonts/segoeuib.ttf", plat::ui_font(true)}, 58);
   game_menu::init_fonts();   // #132 in-game settings menu
 }
 }  // namespace settings

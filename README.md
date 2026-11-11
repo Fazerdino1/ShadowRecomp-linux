@@ -6,7 +6,7 @@ A PC port of **Shadow the Hedgehog** (GameCube, 2005).
 
 ## What this is
 
-- A static **recompilation**, not a decompilation. A tool translated the game's original PowerPC code (about 34,000 functions) straight into C++ that runs natively on Windows, with no emulator. It isn't hand-written, readable source code, and it isn't a "matching" decomp.
+- A static **recompilation**, not a decompilation. A tool translated the game's original PowerPC code (about 34,000 functions) straight into C++ that runs natively on Windows (and, experimentally, Linux), with no emulator. It isn't hand-written, readable source code, and it isn't a "matching" decomp.
 - The game logic is that translated original code. Graphics, sound and disc reading are replaced with PC versions. About 160 small hooks add fixes and optional extras, and the "Original game logic" setting turns off the extras that change how the game plays.
 - It needs your own legally owned copy of the game. No game files are included.
 - It was made for fun, to get the game running natively on PC. It's an unofficial fan project, not affiliated with SEGA, and it's provided as-is.
@@ -84,6 +84,12 @@ The licence only covers this project's own work. Shadow the Hedgehog, its code a
 1. Unpack your disc next to the project: `python tools/game_import/gameimport.py <your disc> ..\Shadow`
 2. `python tools/gen.py` (creates `generated/` from your own copy; it never goes in the repo)
 3. `build.cmd`
+
+**Building from source (Linux):** native build, no Wine or Proton (Vulkan through Dawn, SDL3 for the window, sound and controllers). You need clang, CMake, Ninja, Python 3.11+ and the development packages listed in [PORTAGE_LINUX.md](PORTAGE_LINUX.md) (in French: the port's plan, what was verified and what was not).
+1. `./build.sh /path/to/your/disc.iso` (unpacks and checks your disc, creates `generated/`, builds)
+2. `./play/shadow`
+
+The Linux port compiles, links and starts, but it has not been run with the real game yet: expect rough edges.
 
 ## Credits
 

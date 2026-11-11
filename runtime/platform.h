@@ -62,6 +62,9 @@ int run_and_wait(const std::filesystem::path& program, const std::vector<std::st
 // Fatal host faults (access violation / SIGSEGV...): a short report on stderr, then 'report' (guest backtrace), then
 // the default action (crash dump / core).
 void install_crash_handler(void (*report)());
+// A sans-serif system font file for the menus when the Windows fonts they name are not there ("" = none: the
+// built-in ImGui font is used). The returned pointer stays valid.
+const char* ui_font(bool bold);
 // Embedded data: the launcher art (201 emblem, 202 hero). nullptr when the build has none.
 const void* resource(int id, size_t* size);
 

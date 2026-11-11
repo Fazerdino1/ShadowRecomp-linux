@@ -189,6 +189,8 @@ void install_crash_handler(void (*report)()) {
   SetUnhandledExceptionFilter(crash_filter);
 }
 
+const char* ui_font(bool) { return ""; }   // the menus name the Windows fonts themselves
+
 const void* resource(int id, size_t* size) {
   HRSRC r = FindResourceW(nullptr, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10) /* RT_RCDATA */);
   HGLOBAL h = r ? LoadResource(nullptr, r) : nullptr;

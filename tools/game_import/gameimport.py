@@ -127,7 +127,7 @@ def identify(path):
 # --- Dolphin's compressed formats: DolphinTool makes a temporary ISO -------------------------------------------------
 
 def find_dolphin_tool():
-    cands = [os.environ.get('SHADOW_DOLPHINTOOL', ''), shutil.which('DolphinTool') or '']
+    cands = [os.environ.get('SHADOW_DOLPHINTOOL', ''), shutil.which('DolphinTool') or '', shutil.which('dolphin-tool') or '']
     for base in (os.environ.get('ProgramFiles', r'C:\Program Files'), os.environ.get('ProgramFiles(x86)', ''),
                  os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs')):
         if base:

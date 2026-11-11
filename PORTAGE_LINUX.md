@@ -85,27 +85,113 @@ accès. Conséquences :
 
 ## 3. Ordre des travaux
 
-- [ ] 1. Couche plateforme : `platform.h`, `platform_win32.cpp`, `platform_posix.cpp`
-- [ ] 2. Cœur : `sched.cpp` (fibres), `boot.cpp` (mémoire), `rt_sys.cpp` (arrêt, plantages), `main.cpp` (pile, journal, chemins)
-- [ ] 3. Chemins et fichiers dans le reste du runtime (B6, B7, B8, B9, B16)
-- [ ] 4. Disque virtuel : séparateurs, mods, casse (B10)
-- [ ] 5. Premier démarrage sous Linux (B11)
-- [ ] 6. Menus : redémarrage, ouverture de dossiers, ressources du launcher (B12, B13)
-- [ ] 7. `gx_lle.cpp` (B14), `profiler.cpp` (B15)
-- [ ] 8. `CMakeLists.txt` multi-plateforme + `build.sh` (B1, B17)
-- [ ] 9. Compilation Linux complète (runtime + Aurora + Dawn + SDL3) et édition de liens avec un `main.dol` factice
-- [ ] 10. Essais de démarrage : sans disque, avec faux disque, fenêtre + rendu Vulkan logiciel
-- [ ] 11. Vérification que le code Windows compile toujours (analyse syntaxique avec les en-têtes mingw-w64)
-- [ ] 12. README : section Linux
+- [x] 1. Couche plateforme : `platform.h`, `platform_win32.cpp`, `platform_posix.cpp`
+- [x] 2. Cœur : `sched.cpp` (fibres), `boot.cpp` (mémoire), `rt_sys.cpp` (arrêt, plantages), `main.cpp` (pile, journal, chemins)
+- [x] 3. Chemins et fichiers dans le reste du runtime (B6, B7, B8, B9, B16)
+- [x] 4. Disque virtuel : séparateurs, mods, casse (B10)
+- [x] 5. Premier démarrage sous Linux (B11)
+- [x] 6. Menus : redémarrage, ouverture de dossiers, ressources du launcher (B12, B13)
+- [x] 7. `gx_lle.cpp` (B14), `profiler.cpp` (B15)
+- [x] 8. `CMakeLists.txt` multi-plateforme + `build.sh` (B1, B17)
+- [x] 9. Compilation Linux complète (runtime + Aurora + Dawn + SDL3) et édition de liens avec un `main.dol` factice
+- [x] 10. Essais de démarrage : sans disque, avec faux disque, fenêtre + rendu Vulkan logiciel
+- [x] 11. Vérification que le code Windows compile toujours (analyse syntaxique avec les en-têtes mingw-w64)
+- [x] 12. README : section Linux
+
+Points apparus pendant l'exécution (hors plan initial) :
+
+- [x] `runtime/sched.h` masquait l'en-tête système `<sched.h>` (inclus par `<pthread.h>`) : sous Linux les dossiers
+  `runtime/` et `generated/` sont passés en `-iquote` au lieu de `-I` (aucun renommage, Windows inchangé).
+- [x] Polices des menus : les menus nomment `C:/Windows/Fonts/...`. Sous Linux, repli sur la police sans-serif du
+  système trouvée par `fc-match` (`plat::ui_font`).
+- [x] `tools/game_import/gameimport.py` : cherche aussi `dolphin-tool` (nom du binaire sous Linux) pour les `.rvz`.
+- [x] `.gitignore` (liste blanche) : `build.sh` et `PORTAGE_LINUX.md` autorisés.
 
 ## 4. Modifications du code du jeu recompilé
 
-Aucune prévue : `generated/` et `tools/gen.py` / `tools/lift.py` ne sont pas touchés.
+Aucune. `generated/`, `tools/gen.py` et `tools/lift.py` ne sont pas touchés ; seuls `runtime/` (couche plateforme),
+`CMakeLists.txt`, `build.sh` et une ligne de `gameimport.py` changent.
 
-## 5. Compiler et lancer
+Deux corrections de chemins au passage, dans des lignes qu'il fallait de toute façon réécrire : `boss_ai.cpp` et
+`stage_workshop.cpp` contenaient `"\mods\boss_arena.txt"` et `find_last_of("\/")` écrits avec un seul antislash
+(donc `\b` = retour arrière) ; ils passent maintenant par `plat::exe_dir()`.
 
-(rempli à la fin)
+## 5. Compiler et lancer (Nobara / Fedora)
+
+Dépendances :
+
+```bash
+sudo dnf install clang gcc-c++ cmake ninja-build python3 git pkgconf-pkg-config fontconfig libpng-devel freetype-devel sqlite-devel zlib-devel libzstd-devel wayland-devel wayland-protocols-devel libxkbcommon-devel libdecor-devel mesa-libEGL-devel mesa-libGL-devel mesa-libgbm-devel libdrm-devel libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXi-devel libXfixes-devel libXScrnSaver-devel libXtst-devel pipewire-devel pulseaudio-libs-devel alsa-lib-devel dbus-devel systemd-devel libusb1-devel vulkan-loader
+```
+
+Première compilation, avec votre disque (USA, GUPE8P ; `.iso`, `.gcm`, ou dossier extrait par Dolphin ; `.rvz` si
+`dolphin-tool` est installé) :
+
+```bash
+./build.sh /chemin/vers/votre/disque.iso
+```
+
+Le script vérifie et décompacte le disque dans `../Shadow` (à côté du dossier du projet), génère `generated/`,
+compile, puis place le binaire dans `play/`. Lancer le jeu :
+
+```bash
+./play/shadow
+```
+
+Recompiler plus tard :
+
+```bash
+./build.sh
+```
+
+Utile :
+
+- `./play/shadow --builtin-launcher` : ouvre le launcher intégré au lieu de démarrer directement le jeu.
+- Lancé depuis un terminal, le journal va dans `play/logs/shadow-<date>.log` ; `./play/shadow 2>journal.txt` pour
+  choisir le fichier.
+- Si la fenêtre pose problème sous Wayland : `SDL_VIDEODRIVER=x11 ./play/shadow` (XWayland).
+- Sauvegardes : `play/saves/`, réglages : `play/shadow_settings.ini`.
 
 ## 6. État des vérifications
 
-(rempli à la fin)
+Environnement de vérification : conteneur Ubuntu 24.04, clang 18, sans GPU, sans carte son, sans manette, **sans le
+disque du jeu**.
+
+Vérifié ici :
+
+- Compilation Linux complète sans erreur : les 64 fichiers de `runtime/`, Aurora, SDL3 3.4.10 (Wayland + X11),
+  Dawn précompilé, puis édition de liens du binaire `shadow` (ELF x86-64) — avec un `generated/` produit par
+  `tools/gen.py` à partir d'un `main.dol` **factice** (34 026 fonctions aux bonnes adresses, corps réduits à `blr`,
+  `callhooks.txt` et `dtscale.txt` vidés car ils visent des instructions précises du vrai jeu).
+- Démarrage sans disque (`--quiet`) : sortie propre.
+- Démarrage avec un faux disque sous Xvfb : lecture du disque, mémoire du jeu, fenêtre SDL, initialisation de Dawn,
+  polices, entrée dans le code « du jeu » (qui rend aussitôt la main, étant factice).
+- Launcher intégré affiché (capture d'écran) : rendu WebGPU, ImGui, images compilées dans le binaire, polices système.
+- Fenêtre de premier démarrage affichée (capture d'écran) ; import d'un faux disque refusé avec le bon message ;
+  SHA-1 intégré identique à `hashlib` sur trois vecteurs.
+- Couche plateforme (test unitaire) : fibres `ucontext`, `setjmp/longjmp` dans une fibre, récursion de ~200 Mo sur la
+  grande pile, création/destruction de 2 000 fibres, recherche insensible à la casse, horodatages, rapport de plantage
+  sur `SIGSEGV` depuis une fibre.
+- Le code Windows compile toujours : analyse `clang --target=x86_64-w64-mingw32 -fsyntax-only` sans erreur sur tous
+  les fichiers de `runtime/` (dont `platform_win32.cpp` et les parties Win32 de `first_run.cpp`, `profiler.cpp`,
+  `gx_lle.cpp`).
+
+Fait mais **non vérifié** (impossible ici) :
+
+- Le jeu lui-même : jamais exécuté sous Linux, faute de `main.dol`. La compilation du vrai `generated/` n'a donc pas
+  été faite non plus (le générateur et le code émis sont du C++ portable, mais ce n'est pas une preuve).
+- Rendu **Vulkan** sur GPU réel : dans le conteneur, Aurora écarte l'adaptateur Vulkan logiciel et se replie sur
+  OpenGL ES logiciel. Vulkan + NVIDIA + Wayland n'ont pas été essayés.
+- Son : pas de périphérique audio ici (pilote SDL `dummy`). Le code audio est celui de Windows, inchangé (SDL3).
+- Manette et clavier en jeu : code SDL3 inchangé, non essayé.
+- Sélecteur de fichiers natif (portail XDG / zenity), glisser-déposer, HDR, plein écran, redémarrage depuis le menu,
+  ouverture de dossiers (`xdg-open`), conversion `.rvz` par `dolphin-tool`.
+- Compilation avec le clang plus récent de Nobara (essayé ici avec clang 18 seulement).
+- Version Windows : analyse syntaxique seulement, pas de compilation MSVC/clang-cl réelle ni d'exécution.
+
+Reste à faire :
+
+- Compiler avec le vrai disque et jouer sur la machine cible ; corriger ce que cet essai révélera.
+- Profileur (`PROFILE=`) : Windows seulement ; sous Linux, utiliser `perf`.
+- L'éditeur de niveaux (`tools/stage_editor`) et les launchers externes n'ont pas été examinés pour Linux.
+- Données à côté du binaire (comme sous Windows) ; pas de rangement XDG (`~/.local/share`).

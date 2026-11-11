@@ -926,9 +926,9 @@ void init_fonts() {
       if (FILE* t = fopen(f, "rb")) { fclose(t); if (ImFont* ft = io.Fonts->AddFontFromFileTTF(f, px * scale, nullptr, kRanges)) return ft; }
     return nullptr;
   };
-  f_title = load({"C:/Windows/Fonts/bahnschrift.ttf", "C:/Windows/Fonts/segoeuib.ttf"}, 46);
-  f_text = load({"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf"}, 26);
-  f_semi = load({"C:/Windows/Fonts/seguisb.ttf", "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf"}, 22);
+  f_title = load({"C:/Windows/Fonts/bahnschrift.ttf", "C:/Windows/Fonts/segoeuib.ttf", plat::ui_font(true)}, 46);
+  f_text = load({"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf", plat::ui_font(false)}, 26);
+  f_semi = load({"C:/Windows/Fonts/seguisb.ttf", "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf", plat::ui_font(true)}, 22);
   logf("[menu] fonts built at %.2fx\n", scale);
   texture_extract::ensure_folders();   // #143 textures\Custom + textures\Original next to the game
   logf("[build] Shadow the Hedgehog recomp %s\n", build_info::text());   // #137

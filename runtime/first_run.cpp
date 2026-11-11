@@ -982,7 +982,7 @@ std::string ui_main(const fs::path& dest, const fs::path& auto_src, const std::s
     // draw
     SDL_SetRenderDrawColor(u.ren, 255, 255, 255, 255);
     SDL_RenderClear(u.ren);
-    text(u, 24, 20, 2, "Choose your Shadow the Hedgehog disc", kInk);
+    text(u, 24, 22, 1.5f, "Choose your Shadow the Hedgehog disc", kInk);
     wrapped(u, 24, 56, 552,
             "ShadowRecomp doesn't include the game. Choose your own copy of Shadow the Hedgehog for GameCube (USA, GUPE8P): "
             "a disc image (.iso, .gcm, .rvz) or a disc folder extracted with Dolphin. You can also drop it on this window. "

@@ -262,6 +262,36 @@ void install_crash_handler(void (*report)()) {
   for (int sig : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) sigaction(sig, &sa, nullptr);
 }
 
+const char* ui_font(bool bold) {
+  static std::string found[2];
+  static bool looked[2];
+  std::string& out = found[bold ? 1 : 0];
+  if (looked[bold ? 1 : 0]) return out.c_str();
+  looked[bold ? 1 : 0] = true;
+  // fontconfig knows where this distribution keeps its fonts; .ttf / .otf only (FreeType reads both)
+  if (FILE* p = popen(bold ? "fc-match -f '%{file}' 'sans-serif:bold' 2>/dev/null" : "fc-match -f '%{file}' 'sans-serif' 2>/dev/null", "r")) {
+    char buf[PATH_MAX] = {};
+    const size_t n = fread(buf, 1, sizeof buf - 1, p);
+    pclose(p);
+    std::string f(buf, n);
+    const std::string ext = f.size() > 4 ? f.substr(f.size() - 4) : "";
+    if ((ext == ".ttf" || ext == ".otf") && exists(f)) out = f;
+  }
+  if (out.empty()) {
+    static const char* const regular[] = {"/usr/share/fonts/google-noto/NotoSans-Regular.ttf", "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+                                          "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf", "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
+                                          "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                                          "/usr/share/fonts/TTF/DejaVuSans.ttf"};
+    static const char* const heavy[] = {"/usr/share/fonts/google-noto/NotoSans-Bold.ttf", "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf",
+                                        "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Bold.ttf", "/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf",
+                                        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                                        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"};
+    for (const char* f : bold ? heavy : regular)
+      if (exists(f)) { out = f; break; }
+  }
+  return out.c_str();
+}
+
 // ---- stacks -----------------------------------------------------------------------------------------------------------
 namespace {
 struct PosixFiber {
