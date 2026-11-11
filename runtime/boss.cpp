@@ -51,14 +51,14 @@ uint64_t g_units[12] = {};
 
 // START waits for its start motion (motion 3, fn_80416F28) and then sets mode 2 + flag +0x172; in another stage that
 // motion never reports done (its start camera / event is the boss stage's), so after 3 s the runtime does the same.
-namespace bb0210 { void anchor(uint32_t vp); void chase_guard(uint32_t vp); }   // boss_vanilla.cpp (#130)
+namespace bb0210 { void anchor(uint32_t vp); void chase_guard(uint32_t vp); bool own_fight(uint32_t vp); }   // boss_vanilla.cpp (#130)
 void hle_BB0210Start(Cpu& c) {
   report("START", c, g_start);
   const uint32_t boss = ld32(c.r[3] + 0xC);
   if (boss >= 0x80000000u && boss < RT_RAM_END) bb0210::anchor(boss);
   f_80236248(c);
   static std::unordered_map<uint32_t, int> frames;
-  if (boss < 0x80000000u || boss >= RT_RAM_END || (uint32_t)game::current_stage() == 210) return;   // its own stage: untouched
+  if (boss < 0x80000000u || boss >= RT_RAM_END || bb0210::own_fight(boss)) return;   // its own stage: untouched
   if ((int)ld32(boss + 0x14) != 0) { frames.erase(boss); return; }
   static const bool force = getenv("BOSS_FORCE_START") != nullptr;   // probe only: off by default
   if (force && ++frames[boss] == 180) {
@@ -87,7 +87,7 @@ void hle_BB0210_CHASE(Cpu& c) {
   f_8023514C(c);
   if (boss >= 0x80000000u && boss < RT_RAM_END) bb0210::chase_guard(boss);
   static const bool leash = getenv("BOSS_LEASH") != nullptr && getenv("BOSS_NO_LEASH") == nullptr;
-  if (boss < 0x80000000u || boss >= RT_RAM_END || (uint32_t)game::current_stage() == 210 || !leash) return;
+  if (boss < 0x80000000u || boss >= RT_RAM_END || bb0210::own_fight(boss) || !leash) return;
   const float bx = (float)ldf32(boss + 0xFC), by = (float)ldf32(boss + 0x100), bz = (float)ldf32(boss + 0x104);
   const float px = (float)ldf32(boss + 0x138), py = (float)ldf32(boss + 0x13C), pz = (float)ldf32(boss + 0x140);
   const float dx = px - bx, dz = pz - bz, d = std::sqrt(dx * dx + dz * dz);

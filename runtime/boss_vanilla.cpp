@@ -24,7 +24,26 @@ float g_orig[8][3];
 bool g_saved = false, g_moved = false;
 float g_cx = 0, g_cz = 0, g_scale = 1;
 bool log_on() { static const bool on = getenv("BB_ANCHOR_LOG") != nullptr; return on; }
+float orig_radius() {
+  float rmax = 0;
+  for (auto& p : g_orig) rmax = std::fmax(rmax, std::sqrt(p[0] * p[0] + p[2] * p[2]));
+  return rmax;
+}
 }  // namespace
+
+// Its own fight: stage 210, or wherever the vanilla point table already fits - no boss-card arena and its home inside
+// the table's circle (+ a margin). The second test keeps the vanilla AI when the stage id is not the one expected
+// (Story Mode reported 0 before game::current_stage(); a stage id read mid-transition), instead of shrinking the
+// table round its home - the 'turns round and stays stuck' boss.
+bool own_fight(uint32_t vp) {
+  const int st = game::current_stage();
+  if (st == 210) return true;
+  float cx, cz, ar;
+  if (boss_arena::arena_of(0xB4, cx, cz, ar)) return false;
+  const float r = g_saved ? orig_radius() : 680.f;
+  const float hx = (float)ldf32(vp + 0x108), hz = (float)ldf32(vp + 0x110);
+  return std::sqrt(hx * hx + hz * hz) < r + 300.f;
+}
 
 // called from Black Bull 0210's START / WAIT / CHASE updates (boss.cpp) with its VarParam
 void anchor(uint32_t vp) {
@@ -37,11 +56,10 @@ void anchor(uint32_t vp) {
     if (log_on())
       for (int i = 0; i < 8; ++i) logf("[bb0210] table %d (%.1f, %.1f, %.1f)\n", i, g_orig[i][0], g_orig[i][1], g_orig[i][2]);
   }
-  const bool own = (uint32_t)game::current_stage() == 210;
+  const bool own = own_fight(vp);
   float cx = 0, cz = 0, scale = 1, ar = 0;
   if (!own) {
-    float rmax = 0;
-    for (auto& p : g_orig) rmax = std::fmax(rmax, std::sqrt(p[0] * p[0] + p[2] * p[2]));
+    const float rmax = orig_radius();
     if (boss_arena::arena_of(0xB4, cx, cz, ar) && rmax > 0) scale = ar / rmax;
     else { cx = (float)ldf32(vp + 0x108); cz = (float)ldf32(vp + 0x110); scale = 0.5f; }
   }
@@ -52,12 +70,12 @@ void anchor(uint32_t vp) {
     stf32(kTable + i * 12 + 8, own ? g_orig[i][2] : cz + g_orig[i][2] * scale);
   }
   g_moved = !own; g_cx = cx; g_cz = cz; g_scale = scale;
-  if (log_on()) logf("[bb0210] CHASE points %s round (%.0f, %.0f) x %.2f%s\n", own ? "restored" : "moved", cx, cz, scale, ar > 0 ? " (boss card arena)" : "");
+  if (log_on()) logf("[bb0210] stage %d: CHASE points %s round (%.0f, %.0f) x %.2f%s\n", game::current_stage(), own ? "vanilla" : "moved", cx, cz, scale, ar > 0 ? " (boss card arena)" : "");
 }
 
 // after the CHASE update: a leg that has not got 5 units closer in 1.5 s ends (request WAIT + the flag CHASE sets)
 void chase_guard(uint32_t vp) {
-  if ((uint32_t)game::current_stage() == 210) return;
+  if (own_fight(vp)) return;
   static uint32_t s_vp = 0; static float s_best = 0; static uint64_t s_t = 0;
   const float d = (float)ldf32(vp + 0x114);
   const uint64_t now = sys_time_ns();
