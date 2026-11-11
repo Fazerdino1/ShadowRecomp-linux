@@ -120,7 +120,7 @@ static const struct { const char* key; uint32_t addr; } kLiveWords[] = {
 };
 static std::string side_path(const char* name) {
   std::string p = ini_path();
-  return p.substr(0, p.find_last_of("\\/")) + "\\" + name;
+  return p.substr(0, p.find_last_of("\\/")) + "/" + name;
 }
 static void poll_live_commands() {
   static std::map<std::string, int> applied;
